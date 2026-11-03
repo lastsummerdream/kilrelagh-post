@@ -650,3 +650,14 @@ html.in-app .whoami select{height:20px;font-size:.74rem}
 @media (max-width: 860px){ .mast-sub{border-bottom-width:2.5px;margin-bottom:5px} }
 /* 휴대폰: 맨 아래 글이 음악 버튼에 가리지 않게 아래 여백 */
 @media (max-width: 860px){ main{padding-bottom:calc(56px + env(safe-area-inset-bottom, 0px))} }
+
+/* 아이폰: '말하는 인물' 드롭메뉴 글자도 메뉴와 같은 크기로.
+   (이 사이트는 아이폰에서 maximum-scale=1을 켜 두어서, 16px보다 작아도 눌렀을 때 화면이 확대되지 않음) */
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 860px){ .whoami select{font-size:.78rem !important} }
+  html.in-app .whoami select{font-size:.74rem !important}
+}
+
+/* 휴대폰 위 메뉴 탭 높이 10% 키움 ('말하는 인물' 줄은 그대로) */
+@media (max-width: 860px){ .nav a{padding-top:4.7px;padding-bottom:4.7px} }
+html.in-app .nav a{padding-top:3.55px;padding-bottom:3.55px}
