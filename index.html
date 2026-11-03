@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<script>
+/* iPhone·iPad Safari: 입력창을 누를 때 화면이 자동으로 확대되지 않게 (두 손가락 확대는 계속 됨) */
+(function(){var u=navigator.userAgent||"";if(!(/iP(hone|od|ad)/.test(u)||(/Macintosh/.test(u)&&navigator.maxTouchPoints>1)))return;
+var m=document.querySelector('meta[name="viewport"]');if(m&&!/maximum-scale/.test(m.content))m.content+=", maximum-scale=1";})();
+</script>
+<meta name="robots" content="noindex, nofollow">
+<title>킬렐러 우체국</title>
+<meta name="description" content="페이건 오멘 스쿨 세계관 참여자 전용 공간">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=UnifrakturMaguntia&family=Playfair+Display:ital,wght@0,900;1,400&family=Old+Standard+TT:wght@700&family=Noto+Sans+KR:wght@400;700&family=Noto+Serif+KR:wght@400;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="mast">
+  <div class="mast-row">
+    <div class="mast-ear">Members'<br>Edition</div>
+    <h1>The Kilrelagh Post</h1>
+    <div class="mast-ear right">Fermanagh<br>Est. 1605</div>
+  </div>
+  <div class="mast-sub"><span>킬렐러 우체국 · 회원 전용</span><span id="today"></span><span>No Fishing Beyond This Line</span></div>
+  <nav class="nav" id="nav" hidden>
+    <a href="#/chat/square" data-sec="chat">광장</a>
+    <a href="#/board" data-sec="board">게시판</a>
+    <a href="#/mail" data-sec="mail">쪽지함 <span class="badge" id="mail-badge" hidden>0</span></a>
+    <a href="#/rooms" data-sec="rooms">둘만의 방 <span class="badge" id="room-badge" hidden>0</span></a>
+    <a href="#/people" data-sec="people">인물록</a>
+    <a href="#/me" data-sec="me">내 캐릭터</a>
+    <span class="nav-spacer"></span>
+    <div class="whoami">
+      <label for="active-char" class="muted" style="font-size:.8rem">말하는 인물</label>
+      <select id="active-char"></select>
+      <button type="button" class="linkbtn" id="logout">로그아웃</button>
+    </div>
+  </nav>
+</header>
+<main id="app"><p class="loading">편지를 분류하는 중…</p></main>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+<div class="bgm" id="bgm-box" hidden><button type="button" class="bgm-toggle" id="bgm-toggle" aria-pressed="false" aria-label="배경음악 켜기/끄기"><span class="bgm-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="bgm-label">Music Off</span></button><label class="bgm-vol" for="bgm-volume"><span class="sr-only">배경음악 소리 크기</span><input type="range" id="bgm-volume" min="0" max="100" step="5" value="40"></label></div>
+<script type="module" src="app.js"></script>
+</body>
+</html>

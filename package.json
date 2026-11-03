@@ -1,0 +1,9 @@
+{
+  "name": "kilrelagh-npc",
+  "private": true,
+  "type": "module",
+  "description": "킬렐러 우체국 NPC가 가끔 채팅과 게시판에 말을 남기게 하는 스크립트 (GitHub Actions에서 실행)",
+  "dependencies": {
+    "firebase-admin": "^12.1.0"
+  }
+}
