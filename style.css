@@ -295,8 +295,8 @@ main{max-width:1180px;margin:0 auto;padding-left:var(--gutter);padding-right:max
 .facts{border-top-style:double;border-top-width:3px}
 
 /* ---------- Chat & body text: 10pt, 장평 92% (condensed font files), 자간 94% ---------- */
-@font-face{font-family:"KoPub Batang 92";font-weight:400;font-display:swap;src:url(kopub-batang-medium-92.woff) format("woff")}
-@font-face{font-family:"KoPub Dotum 92";font-weight:400;font-display:swap;src:url(kopub-dotum-medium-92.woff) format("woff")}
+@font-face{font-family:"KoPub Batang 92";font-weight:400;font-display:swap;src:url(kopub-batang-medium-92.woff?v=2) format("woff")}
+@font-face{font-family:"KoPub Dotum 92";font-weight:400;font-display:swap;src:url(kopub-dotum-medium-92.woff?v=2) format("woff")}
 .msg-text,.composer textarea{font-family:"KoPub Dotum 92",var(--f-sans);font-size:10pt;letter-spacing:-.06em}
 .msg.action .msg-text,.comment .msg-text,.letter .msg-text,.prose,.facts dd{font-family:"KoPub Batang 92",var(--f-serif);font-size:10pt;letter-spacing:-.06em}
 .prose{line-height:1.8}
@@ -419,3 +419,9 @@ input[type="checkbox"], input[type="radio"], input[type="file"], input[type="ran
 .crop-row{display:flex;align-items:center;gap:10px;margin:14px 0 4px;font-size:.82rem}
 .crop-zoom{flex:1;accent-color:var(--green)}
 .crop-help{font-size:.82rem;margin:4px 0 14px}
+
+/* ===== 모든 브라우저에서 같은 장평·자간으로 (Safari·Firefox·Chrome·삼성 인터넷) ===== */
+html{-webkit-text-size-adjust:100%;text-size-adjust:100%}
+.msg-text,.composer textarea,.msg.action .msg-text,.comment .msg-text,.letter .msg-text,.prose,.facts dd{
+  font-kerning:none;font-feature-settings:"kern" 0,"palt" 0;font-synthesis:none;font-variant-east-asian:normal;
+  word-spacing:0;text-align:left;text-justify:none;-webkit-font-smoothing:antialiased}
