@@ -553,7 +553,7 @@ async function pushOut(payload) {
   try {
     const idt = await auth.currentUser.getIdToken();
     fetch(PUSH_RELAY + "/notify", {
-      method: "POST", keepalive: true,
+      method: "POST",
       headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" },
       body: JSON.stringify(payload)
     }).catch(() => {});
@@ -651,6 +651,53 @@ function startNotices() {
   } catch (e) {}
 }
 
+// 푸시 진단: 어디서 막히는지 한 단계씩 확인해서 보여 줌
+async function pushDiagnose(out) {
+  const lines = [];
+  const add = (ok, label, detail) => { lines.push(`${ok === true ? "✓" : ok === false ? "✗" : "·"} ${label}${detail ? " — " + detail : ""}`); out.textContent = lines.join("\n"); };
+  const ua = navigator.userAgent || "";
+  const standalone = (window.matchMedia && matchMedia("(display-mode: standalone)").matches) || navigator.standalone === true;
+  add(null, "기기", NATIVE ? "안드로이드 앱" : (/iPhone|iPad|iPod/.test(ua) ? "아이폰·아이패드" : /Android/.test(ua) ? "안드로이드 브라우저" : "컴퓨터") + (standalone ? " · 홈 화면 앱" : ""));
+  add(!!PUSH_RELAY, "중계소 주소(config.js relay)", PUSH_RELAY || "비어 있음");
+  if (!NATIVE) add(!!PUSH_CFG.vapidKey, "웹 푸시 키(config.js vapidKey)", PUSH_CFG.vapidKey ? PUSH_CFG.vapidKey.length + "자" : "비어 있음");
+  const perm = notifyPermission();
+  add(perm === "granted", "알림 권한", perm);
+  if (perm !== "granted") { add(false, "멈춤", "먼저 알림을 허용해야 합니다"); return lines; }
+  let token = "";
+  if (NATIVE) {
+    token = NATIVE_PUSH ? String(NATIVE.pushToken() || "") : "";
+    add(!!token, "앱 푸시 주소", token ? token.slice(0, 12) + "…" : (NATIVE_PUSH ? "아직 없음 (앱을 껐다 켜 보세요)" : "푸시 없이 만든 앱입니다 (GOOGLE_SERVICES_JSON 확인)"));
+  } else {
+    let sup = false; try { sup = await msgSupported(); } catch (e) {}
+    add(sup, "이 브라우저의 푸시 지원", sup ? "지원" : (/iPhone|iPad|iPod/.test(ua) && !standalone ? "아이폰은 Safari ‘홈 화면에 추가’ 아이콘으로 열어야 합니다" : "지원 안 함"));
+    if (!sup) return lines;
+    try { const reg = swReg || await navigator.serviceWorker.register("sw.js"); swReg = reg; await navigator.serviceWorker.ready; add(true, "도우미(sw.js)", reg.active ? "작동 중" : "설치 중"); }
+    catch (e) { add(false, "도우미(sw.js)", e.message); return lines; }
+    try { messaging = messaging || getMessaging(fb); token = await getToken(messaging, { vapidKey: PUSH_CFG.vapidKey, serviceWorkerRegistration: swReg }); add(!!token, "웹 푸시 주소", token ? token.slice(0, 12) + "…" : "받지 못함"); }
+    catch (e) { add(false, "웹 푸시 주소", (e.code || "") + " " + (e.message || "")); return lines; }
+  }
+  if (!token) return lines;
+  try {
+    await setDoc(doc(db, "pushTokens", uid()), { tokens: { [token]: { platform: NATIVE ? "android" : "web", at: serverTimestamp() } } }, { merge: true });
+    try { localStorage.setItem(pushKey(), token); } catch (e) {}
+    add(true, "푸시 주소 저장", "Firestore에 저장됨");
+  } catch (e) { add(false, "푸시 주소 저장", (e.code || e.message) + (e.code === "permission-denied" ? " (Firebase 규칙 탭에 최신 firestore.rules를 게시했는지 확인)" : "")); return lines; }
+  if (!PUSH_RELAY) return lines;
+  try { const r = await fetch(PUSH_RELAY + "/"); const t = (await r.text()).slice(0, 80); add(r.ok, "중계소 연결", r.status + " " + t); if (!r.ok) return lines; }
+  catch (e) { add(false, "중계소 연결", "닿지 않음: " + e.message + " (주소가 맞는지, Deploy를 눌렀는지 확인)"); return lines; }
+  try {
+    const idt = await auth.currentUser.getIdToken();
+    const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "test" }) });
+    const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
+    if (!r.ok || !j) { add(false, "시험 푸시", r.status + " " + t.slice(0, 200)); return lines; }
+    const okN = (j.results || []).filter(x => x.result === "ok").length;
+    add(okN > 0, "시험 푸시 보냄", `등록된 기기 ${j.tokens}곳 중 ${okN}곳 성공`);
+    for (const x of j.results || []) if (x.result !== "ok") add(false, `  ${x.platform} 기기`, `${x.result} ${x.status} ${x.detail || ""}`.slice(0, 260));
+    if (okN) add(null, "확인", "몇 초 안에 ‘푸시 시험’ 알림이 떠야 합니다. 안 뜨면 이 화면을 캡처해 주세요.");
+  } catch (e) { add(false, "시험 푸시", e.message); }
+  return lines;
+}
+
 function notifyBox() {
   const box = h("section", { class: "account" });
   function draw() {
@@ -669,7 +716,13 @@ function notifyBox() {
         on ? h("button", { class: "btn small", type: "button", text: "시험 알림", onclick: () => { if (!osNotify("✠ 킬렐러 우체국", "알림이 이렇게 옵니다.", "#/settings/notify")) toast("알림을 보내지 못했습니다."); } }) : null,
         h("button", { class: "btn small", type: "button", text: on ? "알림 끄기" : "알림 켜기", onclick: async () => { setNotifyOn(!on); if (on) await disablePush(); else await enablePush(); draw(); } }));
     }
-    box.replaceChildren(h("h3", { class: "room-sec", text: "✠ 알림" }), body,
+    const diagOut = h("pre", { class: "diag", hidden: true });
+    const diagBtn = h("button", { class: "btn small", type: "button", text: "푸시 진단하기", onclick: async () => {
+      diagBtn.disabled = true; diagOut.hidden = false; diagOut.textContent = "확인하는 중…";
+      try { await pushDiagnose(diagOut); } finally { diagBtn.disabled = false; }
+    } });
+    const diag = PUSH_RELAY || NATIVE_PUSH ? h("div", { class: "diag-wrap" }, h("div", { class: "account-row" }, h("span", { class: "muted", text: "푸시가 안 오면 눌러 보세요. 어디서 막히는지 단계별로 보여 줍니다." }), diagBtn), diagOut) : null;
+    box.replaceChildren(h("h3", { class: "room-sec", text: "✠ 알림" }), body, ...(diag ? [diag] : []),
       h("p", { class: "muted", style: "font-size:.82rem;margin:8px 0 0", text: pushReady() ? "이 기기로 푸시 알림이 옵니다. 다른 기기에서도 받으려면 그 기기에서도 알림을 켜 주세요."
         : PUSH_RELAY ? "알림을 켜면 이 기기에 푸시 알림이 등록됩니다. (컴퓨터 Chrome·Edge, 안드로이드 앱, 홈 화면에 추가한 아이폰)"
         : "지금은 사이트나 앱이 열려 있을 때만 알림이 옵니다." }));
@@ -687,8 +740,11 @@ function route() {
   const [sec, a, b] = parts;
   const navSec = sec === "me" ? "settings" : sec;      // 캐릭터 만들기·고치기 화면도 '설정' 탭에 속함
   document.querySelectorAll("#nav a[data-sec]").forEach(x => {
-    if (x.dataset.sec === navSec) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current");
+    if (x.dataset.sec === navSec) {
+      x.setAttribute("aria-current", "page");
+    } else x.removeAttribute("aria-current");
   });
+  showCurrentTab(); setTimeout(showCurrentTab, 350);
   window.scrollTo(0, 0);
   setMusicFor(sec === "chat" ? (a || "square") : "default");
   if (sec === "chat") return viewChat(a || "square");
@@ -759,7 +815,7 @@ function viewChat(chId) {
 
   function drawWho() {
     const me = activeChar();
-    who.replaceChildren(avatar(me, 36), h("span", { text: me ? me.name : "캐릭터 없음" }));
+    who.title = me ? me.name + "(으)로 말합니다" : ""; who.replaceChildren(avatar(me, 36), h("span", { text: me ? me.name : "캐릭터 없음" }));
     ta.disabled = !me; sendBtn.disabled = !me;
     ta.placeholder = me ? `${ch.name}에 말하기` : "캐릭터를 먼저 만들어 주세요";
   }
@@ -1452,7 +1508,7 @@ function viewRoom(roomId) {
         class: "btn small", type: "button", text: "방 닫기",
         onclick: async () => { if (!confirm("방을 닫을까요? 닫으면 더 이상 말할 수 없고 기록만 남습니다.")) return; try { await updateDoc(doc(db, "rooms", roomId), { closed: true }); } catch (e) { toast(errText(e)); } }
       }));
-    who.replaceChildren(avatar(me, 36, me ? me.name : "?"), h("span", { text: me ? me.name : "" }));
+    who.title = me ? me.name + "(으)로 말합니다" : ""; who.replaceChildren(avatar(me, 36, me ? me.name : "?"), h("span", { text: me ? me.name : "" }));
     if (room.closed) foot.replaceChildren(h("div", { class: "composer-tip", style: "padding:12px", text: "닫힌 방입니다. 기록만 볼 수 있습니다." }));
     else if (!foot.contains(ta)) foot.replaceChildren(h("div", { class: "composer" }, who, ta, sendBtn), h("div", { class: "composer-tip", text: "Enter 보내기 · Shift+Enter 줄바꿈 · /me 또는 *별표*로 행동 묘사 · 두 사람만 볼 수 있습니다" }));
     ta.placeholder = `${room.place}에서 말하기`;
@@ -1611,3 +1667,17 @@ function processAvatar(fileObj, dots, crop) {
     img.src = url;
   });
 }
+
+/* 휴대폰: 옆으로 미는 메뉴에서 지금 탭이 화면 안에 보이게 */
+function showCurrentTab() {
+  const strip = document.getElementById("nav-links"), x = strip && strip.querySelector("a[aria-current]");
+  if (!x || strip.scrollWidth <= strip.clientWidth) return;
+  const l = x.offsetLeft, r = l + x.offsetWidth;
+  if (l < strip.scrollLeft || r > strip.scrollLeft + strip.clientWidth) strip.scrollTo({ left: Math.max(0, l - 24), behavior: "smooth" });
+}
+/* 휴대폰 메뉴: 끝까지 밀면 오른쪽 흐림 표시를 없앰 */
+(function () {
+  const strip = document.getElementById("nav-links"); if (!strip) return;
+  const upd = () => strip.classList.toggle("at-end", strip.scrollLeft + strip.clientWidth >= strip.scrollWidth - 2);
+  strip.addEventListener("scroll", upd, { passive: true }); window.addEventListener("resize", upd); setTimeout(upd, 300);
+})();
