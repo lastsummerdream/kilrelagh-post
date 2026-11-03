@@ -633,3 +633,20 @@ html.in-app .whoami select{padding:1px 6px;font-size:.78rem}
 /* 페이지 제목 자간: 87% → 95% */
 .page-head h2{letter-spacing:-.05em}
 @media (max-width: 860px){ .page-head h2{letter-spacing:-.05em} }
+
+/* 휴대폰 '말하는 인물' 줄도 메뉴와 같은 비율(60%)로 */
+@media (max-width: 860px){
+  .whoami{padding:3px 0;gap:6px}
+  .whoami select{height:22px;padding:0 6px;line-height:1.2;font-size:.78rem}
+  .whoami label{font-size:.7rem !important;line-height:1.2}
+  .whoami .linkbtn{font-size:.72rem;padding:0 4px;line-height:1.2}
+}
+html.in-app .whoami{padding:2.5px 0}
+html.in-app .whoami select{height:20px;font-size:.74rem}
+
+/* ===== 머리글 아래: 문양 없이 신문처럼 굵은 줄 한 줄 ===== */
+.mast-sub{margin-bottom:6px;border-bottom:3px solid var(--ink)}
+.mast-sub::after{content:none;display:none}
+@media (max-width: 860px){ .mast-sub{border-bottom-width:2.5px;margin-bottom:5px} }
+/* 휴대폰: 맨 아래 글이 음악 버튼에 가리지 않게 아래 여백 */
+@media (max-width: 860px){ main{padding-bottom:calc(56px + env(safe-area-inset-bottom, 0px))} }

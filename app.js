@@ -88,6 +88,9 @@ function fitBoxes() {
   if (!boxes.length) return;
   measureSafe();
   for (const el of boxes) {
+    // 휴대폰 쪽지 목록(대화를 열기 전)은 글 목록처럼 자연스러운 높이로
+    if (MOBILE.matches && el.classList.contains("mail") && !el.classList.contains("has-thread")) { el.style.height = "auto"; el.style.minHeight = "0"; continue; }
+    el.style.minHeight = "";
     const top = el.getBoundingClientRect().top + window.scrollY;
     const h = window.innerHeight - top - 52 - safeBottom;
     el.style.height = Math.max(MOBILE.matches ? 380 : 460, Math.round(h)) + "px";
