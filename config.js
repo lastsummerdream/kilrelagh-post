@@ -13,6 +13,6 @@ export const firebaseConfig = {
 // 푸시 알림 — 호스팅 안내 12단계 ①의 '웹 푸시 키'와 ③의 '중계소 주소'를 따옴표 안에 넣으세요.
 // 아직 없으면 비워 두어도 사이트는 그대로 동작합니다 (푸시만 꺼진 상태).
 export const pushConfig = {
-  vapidKey: "",
-  relay: ""
+  vapidKey: "BPuBwzZywbHNW04Mpgu1Td0GBkginysyTQkXxh_5havvM9HNVrycROoXUGUch8ILiLp-HTJH8PUoNBDk019sKxc",
+  relay: "https://kilrelagh-push.bucksve.workers.dev/"
 };
