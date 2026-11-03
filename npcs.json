@@ -1,6 +1,6 @@
 {
   "model": "claude-haiku-5-5",
-  "chance": 0.12,
+  "chance": 0.3,
   "quietHoursKST": [
     2,
     8

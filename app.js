@@ -700,7 +700,7 @@ async function pushDiagnose(out) {
     if (okN) add(null, "확인", "몇 초 안에 ‘푸시 시험’ 알림이 떠야 합니다. 안 뜨면 이 화면을 캡처해 주세요.");
     if (NATIVE && NATIVE.battery) {
       let bat = ""; try { bat = String(NATIVE.battery()); } catch (e) {}
-      add(bat === "free", "배터리 최적화", bat === "free" ? "꺼짐 (알림이 바로 옵니다)" : "켜짐 — 앱이 닫혀 있을 때 알림이 늦거나 안 올 수 있어요. 아래 ‘배터리 최적화에서 빼기’를 눌러 주세요.");
+      add(bat === "free", "배터리 최적화", bat === "free" ? "꺼짐 (알림이 바로 옵니다)" : "켜짐 — 앱이 닫혀 있을 때 알림이 늦거나 안 올 수 있어요. ‘앱 정보 열기 (배터리)’ → 배터리 → 제한 없음으로 바꿔 주세요.");
     }
   } catch (e) { add(false, "시험 푸시", e.message); }
   return lines;
@@ -730,9 +730,9 @@ function notifyBox() {
       try { await pushDiagnose(diagOut); } finally { diagBtn.disabled = false; }
     } });
     const appRow = NATIVE && NATIVE.openBattery ? h("div", { class: "account-row" },
-      h("span", { class: "muted", text: "안드로이드 앱: 앱이 닫혀 있어도 알림이 오려면 배터리 최적화에서 이 앱을 빼 주세요." }),
+      h("span", { class: "muted", text: "안드로이드 앱: 앱이 닫혀 있어도 알림이 오려면 ‘앱 정보 → 배터리 → 제한 없음’으로 바꿔 주세요." }),
       h("span", { class: "actions", style: "margin:0" },
-        h("button", { class: "btn small", type: "button", text: "배터리 최적화에서 빼기", onclick: () => { try { NATIVE.openBattery(); } catch (e) {} } }),
+        h("button", { class: "btn small", type: "button", text: "앱 정보 열기 (배터리)", onclick: () => { try { NATIVE.openBattery(); } catch (e) {} } }),
         h("button", { class: "btn small", type: "button", text: "앱 알림 설정", onclick: () => { try { NATIVE.openNotifySettings(); } catch (e) {} } }))) : null;
     const diag = PUSH_RELAY || NATIVE_PUSH ? h("div", { class: "diag-wrap" }, appRow, h("div", { class: "account-row" }, h("span", { class: "muted", text: "푸시가 안 오면 눌러 보세요. 어디서 막히는지 단계별로 보여 줍니다." }), diagBtn), diagOut) : null;
     box.replaceChildren(h("h3", { class: "room-sec", text: "✠ 알림" }), body, ...(diag ? [diag] : []),
@@ -1210,12 +1210,35 @@ function viewProfile(charId) {
               ? [h("a", { class: "btn primary", href: "#/mail/" + convIdFor(me.id, c.id), text: `${me.name}(으)로 쪽지 보내기` }),
                  h("a", { class: "btn", href: "#/rooms/new/" + c.id, text: "둘만의 방 열기" })]
               : needChar()),
+            isAdmin() && isNpc(c) ? npcAvatarControls(c) : null,
             isAdmin() && !mine ? h("button", {
               class: "btn", type: "button", text: "관리자 권한으로 삭제",
               onclick: async () => { if (!confirm(`${c.name} 프로필을 삭제할까요?`)) return; try { await deleteDoc(doc(db, "characters", c.id)); location.hash = "#/people"; } catch (e) { toast(errText(e)); } }
             }) : null))));
   }
   mount(wrap); draw(); S.refresh = draw;
+}
+
+/* 관리자: NPC 프로필 그림 바꾸기 (고르기 → 1:1 자르기 → 도트 여부 → 저장) */
+function npcAvatarControls(c) {
+  const file = h("input", { type: "file", accept: "image/*", hidden: true });
+  file.addEventListener("change", async () => {
+    const fl = file.files && file.files[0]; file.value = ""; if (!fl) return;
+    const crop = await openCropper(fl); if (!crop) return;
+    const dots = confirm("도트(흑백 점묘)로 바꿀까요?\n‘취소’를 누르면 흑백 사진 느낌으로 저장합니다.");
+    try {
+      const data = await processAvatar(fl, dots, crop);
+      await updateDoc(doc(db, "characters", c.id), { avatar: data, updatedAt: serverTimestamp() });
+      toast(`${c.name}의 그림을 바꿨습니다.`);
+    } catch (e) { toast(e && e.code ? errText(e) : "그림을 저장하지 못했습니다."); }
+  });
+  return h("span", { class: "npc-avatar-tools", style: "display:contents" },
+    file,
+    h("button", { class: "btn", type: "button", text: c.avatar ? "NPC 그림 바꾸기" : "NPC 그림 넣기", onclick: () => file.click() }),
+    c.avatar ? h("button", { class: "btn", type: "button", text: "그림 지우기", onclick: async () => {
+      if (!confirm(`${c.name}의 그림을 지울까요?`)) return;
+      try { await updateDoc(doc(db, "characters", c.id), { avatar: "", updatedAt: serverTimestamp() }); toast("그림을 지웠습니다."); } catch (e) { toast(errText(e)); }
+    } }) : null);
 }
 
 /* ============================== 계정 ============================== */

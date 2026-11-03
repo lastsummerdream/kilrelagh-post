@@ -69,6 +69,11 @@ service cloud.firestore {
         && textOk(request.resource.data.name, 40)
         && optText(request.resource.data.bio, 4000)
         && optText(request.resource.data.avatar, 200000);
+      // 관리자는 NPC의 프로필 그림만 바꿀 수 있음 (이름·소개 등은 npcs.json에서)
+      allow update: if isAdmin()
+        && resource.data.get('npc', false) == true
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['avatar', 'updatedAt'])
+        && optText(request.resource.data.avatar, 200000);
       allow delete: if isMember() && (resource.data.ownerUid == request.auth.uid || isAdmin());
     }
 
