@@ -34,33 +34,4 @@ jobs:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NPC_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
 
-# 킬렐러 우체국 — 비밀번호 초기화
-# Actions 탭 → 왼쪽 '비밀번호 초기화' → Run workflow → 아이디 입력 → 실행
-# 임시 비밀번호는 로그에 나오지 않고, 사이트의 '내 캐릭터' 화면 맨 아래(관리자만 보임)에 나타납니다.
-name: 비밀번호 초기화
 
-on:
-  workflow_dispatch:
-    inputs:
-      username:
-        description: "비밀번호를 초기화할 아이디"
-        required: true
-        type: string
-
-jobs:
-  reset:
-    runs-on: ubuntu-latest
-    timeout-minutes: 3
-    defaults:
-      run:
-        working-directory: npc
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm install --omit=dev --no-audit --no-fund
-      - run: node reset-password.mjs
-        env:
-          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
-          RESET_USERNAME: ${{ inputs.username }}
