@@ -72,7 +72,32 @@ function h(tag, attrs, ...kids) {
   }
   return el;
 }
-function mount(...nodes) { $app.replaceChildren(...nodes.flat().filter(n => n !== null && n !== undefined && n !== false)); }
+function mount(...nodes) { $app.replaceChildren(...nodes.flat().filter(n => n !== null && n !== undefined && n !== false)); fitSoon(); }
+
+/* ---------- 대화 상자(채팅·쪽지·둘만의 방)가 화면 높이에 꼭 맞게 ----------
+   아래쪽에 음악 버튼이 들어갈 여백(약 52px)을 남겨서, 접힌 음악 버튼이 대화를 가리지 않게 함 */
+const MOBILE = window.matchMedia("(max-width: 860px)");
+let fitTimer = 0, safeBottom = 0;
+function measureSafe() {
+  const probe = document.createElement("div");
+  probe.style.cssText = "position:fixed;visibility:hidden;height:env(safe-area-inset-bottom, 0px);width:1px";
+  document.body.append(probe); safeBottom = probe.offsetHeight || 0; probe.remove();
+}
+function fitBoxes() {
+  const boxes = document.querySelectorAll("#app .chat, #app .mail");
+  if (!boxes.length) return;
+  measureSafe();
+  for (const el of boxes) {
+    const top = el.getBoundingClientRect().top + window.scrollY;
+    const h = window.innerHeight - top - 52 - safeBottom;
+    el.style.height = Math.max(MOBILE.matches ? 380 : 460, Math.round(h)) + "px";
+  }
+}
+function fitSoon() { cancelAnimationFrame(fitTimer); fitTimer = requestAnimationFrame(() => requestAnimationFrame(fitBoxes)); }
+window.addEventListener("resize", fitSoon);
+window.addEventListener("orientationchange", fitSoon);
+if (MOBILE.addEventListener) MOBILE.addEventListener("change", fitSoon);
+try { new ResizeObserver(fitSoon).observe(document.querySelector(".mast")); } catch (e) {}
 let toastTimer = null;
 function toast(msg, hash) {
   $toast.textContent = msg; $toast.hidden = false;
@@ -395,6 +420,7 @@ function drawBgm() {
   const on = !!current && !current.paused;
   $bgm.setAttribute("aria-pressed", on ? "true" : "false");
   $bgmLabel.textContent = on ? "Music On" : "Music Off";
+  $bgmBox.classList.toggle("playing", on);
 }
 function tryPlay() {
   if (!current || !musicWanted) return;
@@ -429,6 +455,21 @@ $vol.addEventListener("input", () => {
   try { localStorage.setItem("kp-volume", String(volume)); } catch (e) {}
 });
 applyVolume();
+// 음악 막대 접기·펴기 (기본은 접힘: 오른쪽 아래 작은 버튼 하나만 보임). 펼친 상태는 기억함
+const $bgmFold = document.getElementById("bgm-fold");
+function setBgmOpen(open, save) {
+  $bgmBox.dataset.open = open ? "true" : "false";
+  $bgmFold.setAttribute("aria-expanded", open ? "true" : "false");
+  $bgmFold.setAttribute("aria-label", open ? "음악 막대 접기" : "음악 막대 펼치기");
+  if (save) { try { localStorage.setItem("kp-bgm-open", open ? "1" : "0"); } catch (e) {} }
+}
+let bgmOpen = false; try { bgmOpen = localStorage.getItem("kp-bgm-open") === "1"; } catch (e) {}
+setBgmOpen(bgmOpen, false);
+$bgmFold.addEventListener("click", () => { ensureAudioCtx(); setBgmOpen($bgmBox.dataset.open !== "true", true); });
+// 펼친 채로 다른 곳을 누르면 저절로 접힘 (휴대폰에서 대화를 가리지 않게)
+document.addEventListener("pointerdown", (e) => {
+  if ($bgmBox.dataset.open === "true" && MOBILE.matches && !(e.target.closest && e.target.closest("#bgm-box"))) setBgmOpen(false, true);
+}, true);
 // 다른 앱·탭으로 가면 음악을 잠시 멈추고, 돌아오면 다시 (안드로이드 앱은 kp-app-hidden/visible 신호를 보냄)
 function bgmAway() { if (current && !current.paused) { current._away = true; current.pause(); } }
 function bgmBack() { if (current && current._away) { current._away = false; if (musicWanted) tryPlay(); } }
@@ -605,7 +646,7 @@ function startNotices() {
   try {
     if (notifyPermission() === "default" && !localStorage.getItem("kp-notify-hint")) {
       localStorage.setItem("kp-notify-hint", "1");
-      setTimeout(() => toast("알림을 받으려면 ‘내 캐릭터’ 맨 아래에서 알림을 켜 주세요.", "#/me"), 2500);
+      setTimeout(() => toast("알림을 받으려면 ‘설정 → 알림’에서 켜 주세요.", "#/settings/notify"), 2500);
     }
   } catch (e) {}
 }
@@ -625,7 +666,7 @@ function notifyBox() {
         h("button", { class: "btn small primary", type: "button", text: "알림 켜기", onclick: async () => { setNotifyOn(true); await askNotifyPermission(); draw(); enablePush(); } }));
     } else {
       body = row(on ? (pushReady() ? "알림을 받고 있습니다. 사이트나 앱이 닫혀 있어도 바로 옵니다." : "알림을 받고 있습니다.") : "알림이 꺼져 있습니다.",
-        on ? h("button", { class: "btn small", type: "button", text: "시험 알림", onclick: () => { if (!osNotify("✠ 킬렐러 우체국", "알림이 이렇게 옵니다.", "#/me")) toast("알림을 보내지 못했습니다."); } }) : null,
+        on ? h("button", { class: "btn small", type: "button", text: "시험 알림", onclick: () => { if (!osNotify("✠ 킬렐러 우체국", "알림이 이렇게 옵니다.", "#/settings/notify")) toast("알림을 보내지 못했습니다."); } }) : null,
         h("button", { class: "btn small", type: "button", text: on ? "알림 끄기" : "알림 켜기", onclick: async () => { setNotifyOn(!on); if (on) await disablePush(); else await enablePush(); draw(); } }));
     }
     box.replaceChildren(h("h3", { class: "room-sec", text: "✠ 알림" }), body,
@@ -644,8 +685,9 @@ function route() {
   clearView();
   const parts = (location.hash.replace(/^#\/?/, "") || "chat/square").split("/");
   const [sec, a, b] = parts;
+  const navSec = sec === "me" ? "settings" : sec;      // 캐릭터 만들기·고치기 화면도 '설정' 탭에 속함
   document.querySelectorAll("#nav a[data-sec]").forEach(x => {
-    if (x.dataset.sec === sec) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current");
+    if (x.dataset.sec === navSec) x.setAttribute("aria-current", "page"); else x.removeAttribute("aria-current");
   });
   window.scrollTo(0, 0);
   setMusicFor(sec === "chat" ? (a || "square") : "default");
@@ -654,7 +696,8 @@ function route() {
   if (sec === "mail") return viewMail(a || null);
   if (sec === "rooms") { if (a === "new") return viewRoomForm(b); if (a) return viewRoom(a); return viewRooms(); }
   if (sec === "people") return a ? viewProfile(a) : viewPeople();
-  if (sec === "me") { if (a === "new") return viewCharForm(null); if (a === "edit") return viewCharForm(b); return viewMe(); }
+  if (sec === "settings") return viewSettings(a || "chars");
+  if (sec === "me") { if (a === "new") return viewCharForm(null); if (a === "edit") return viewCharForm(b); location.replace("#/settings/chars"); return; }
   location.hash = "#/chat/square";
 }
 
@@ -866,7 +909,7 @@ function viewPost(postId) {
                 }) : null),
               h("p", { class: "msg-text", text: cm.text })));
         }),
-        me ? h("div", { style: "margin-top:16px" }, whoLine, ta, h("div", { class: "actions", style: "margin-top:8px" }, btn)) : needChar()));
+        me ? h("div", { class: "comment-form", style: "margin-top:16px" }, whoLine, ta, h("div", { class: "actions", style: "margin-top:8px" }, btn)) : needChar()));
   }
   mount(wrap);
   S.refresh = draw;
@@ -1158,8 +1201,34 @@ function resetsBox() {
     list);
 }
 
-/* ============================== 내 캐릭터 ============================== */
-function viewMe() {
+/* ============================== 설정: 내 캐릭터 · 알림 · 계정 · 관리 ============================== */
+const SETTINGS_TABS = [
+  { id: "chars", name: "내 캐릭터" },
+  { id: "notify", name: "알림" },
+  { id: "account", name: "계정" },
+  { id: "admin", name: "관리", admin: true }
+];
+function viewSettings(tab) {
+  const tabs = SETTINGS_TABS.filter(t => !t.admin || isAdmin());
+  if (!tabs.some(t => t.id === tab)) { location.replace("#/settings/chars"); return; }
+  const bar = h("nav", { class: "subtabs", "aria-label": "설정 메뉴" },
+    tabs.map(t => h("a", { href: "#/settings/" + t.id, "aria-current": t.id === tab ? "page" : null, text: t.name })));
+  const head = h("div", { class: "page-head" },
+    h("div", null, h("span", { class: "kicker", text: "Settings" }), h("h2", null, "설정", h("small", { text: "내 캐릭터, 알림, 계정을 한곳에서" }))),
+    tab === "chars" && S.myChars.length < MAX_CHARS ? h("a", { class: "btn primary", href: "#/me/new", text: "새 캐릭터" }) : null);
+  if (tab === "chars") return viewMyChars(head, bar);
+  let body;
+  if (tab === "notify") body = [notifyBox()];
+  else if (tab === "account") body = [accountBox(),
+    h("section", { class: "account" },
+      h("h3", { class: "room-sec", text: "✠ 로그아웃" }),
+      h("div", { class: "account-row" },
+        h("span", { text: "이 기기에서 로그아웃합니다. 이 기기의 푸시 알림도 함께 꺼집니다." }),
+        h("button", { class: "btn small", type: "button", text: "로그아웃", onclick: async () => { await disablePush(); signOut(auth); } })))];
+  else body = [resetsBox()];
+  mount(head, bar, h("div", { class: "settings-body" }, ...body));
+}
+function viewMyChars(head, bar) {
   const list = h("div", { class: "mychars" });
   function draw() {
     list.replaceChildren(...(S.myChars.length ? S.myChars.map(c => h("div", { class: "mychar" + (c.id === S.activeId ? " active" : "") },
@@ -1177,14 +1246,9 @@ function viewMe() {
         }))))
       : [h("div", { class: "empty" }, h("strong", { text: "아직 캐릭터가 없습니다" }), "이 세계에서 쓸 인물을 만들어 보세요.")]));
   }
-  mount(
-    h("div", { class: "page-head" },
-      h("div", null, h("span", { class: "kicker", text: "My Characters" }), h("h2", null, "내 캐릭터", h("small", { text: `한 계정에 ${MAX_CHARS}명까지 만들 수 있습니다` }))),
-      S.myChars.length < MAX_CHARS ? h("a", { class: "btn primary", href: "#/me/new", text: "새 캐릭터" }) : null),
-    list,
-    notifyBox(),
-    accountBox(),
-    isAdmin() ? resetsBox() : null);
+  mount(head, bar,
+    h("p", { class: "muted settings-note", text: `한 계정에 ${MAX_CHARS}명까지 만들 수 있습니다. ‘이 인물로 말하기’를 누르면 채팅·댓글에 그 인물 이름으로 남습니다.` }),
+    list);
   draw(); S.refresh = draw;
 }
 
@@ -1276,7 +1340,7 @@ function viewCharForm(charId) {
         h("div", { class: "field wide" }, h("label", { for: "c-look", text: "외모" }), f.appearance),
         h("div", { class: "field wide" }, h("label", { for: "c-pers", text: "성격" }), f.personality),
         h("div", { class: "field wide" }, h("label", { for: "c-bio", text: "소개 · 배경" }), f.bio, h("span", { class: "hint", text: "4,000자까지" }))),
-      h("div", { class: "actions" }, btn, h("a", { class: "btn", href: ex ? "#/people/" + ex.id : "#/me", text: "취소" }))));
+      h("div", { class: "actions" }, btn, h("a", { class: "btn", href: ex ? "#/people/" + ex.id : "#/settings/chars", text: "취소" }))));
   f.name.addEventListener("input", drawPreview);
   drawPreview();
 }

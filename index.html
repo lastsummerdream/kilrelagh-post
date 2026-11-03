@@ -8,6 +8,10 @@
 (function(){var u=navigator.userAgent||"";if(!(/iP(hone|od|ad)/.test(u)||(/Macintosh/.test(u)&&navigator.maxTouchPoints>1)))return;
 var m=document.querySelector('meta[name="viewport"]');if(m&&!/maximum-scale/.test(m.content))m.content+=", maximum-scale=1";})();
 </script>
+<script>
+/* 안드로이드 앱(KilrelaghPostApp) 안에서 열렸을 때 표시 — 앱 전용 크기 조정에 씀 */
+if (/KilrelaghPostApp/.test(navigator.userAgent || "")) document.documentElement.classList.add("in-app");
+</script>
 <meta name="robots" content="noindex, nofollow">
 <title>킬렐러 우체국</title>
 <meta name="description" content="페이건 오멘 스쿨 세계관 참여자 전용 공간">
@@ -31,14 +35,14 @@ var m=document.querySelector('meta[name="viewport"]');if(m&&!/maximum-scale/.tes
     <h1>The Kilrelagh Post</h1>
     <div class="mast-ear right">Fermanagh<br>Est. 1605</div>
   </div>
-  <div class="mast-sub"><span>킬렐러 우체국 · 회원 전용</span><span id="today"></span><span>No Fishing Beyond This Line</span></div>
+  <div class="mast-sub" id="mast-sub"><span class="ms-a">킬렐러 우체국 · 회원 전용</span><span id="today"></span><span class="ms-c">No Fishing Beyond This Line</span></div>
   <nav class="nav" id="nav" hidden>
     <a href="#/chat/square" data-sec="chat">광장</a>
     <a href="#/board" data-sec="board">게시판</a>
     <a href="#/mail" data-sec="mail">쪽지함 <span class="badge" id="mail-badge" hidden>0</span></a>
     <a href="#/rooms" data-sec="rooms">둘만의 방 <span class="badge" id="room-badge" hidden>0</span></a>
     <a href="#/people" data-sec="people">인물록</a>
-    <a href="#/me" data-sec="me">내 캐릭터</a>
+    <a href="#/settings" data-sec="settings">설정</a>
     <span class="nav-spacer"></span>
     <div class="whoami">
       <label for="active-char" class="muted" style="font-size:.8rem">말하는 인물</label>
@@ -49,7 +53,15 @@ var m=document.querySelector('meta[name="viewport"]');if(m&&!/maximum-scale/.tes
 </header>
 <main id="app"><p class="loading">편지를 분류하는 중…</p></main>
 <div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
-<div class="bgm" id="bgm-box" hidden><button type="button" class="bgm-toggle" id="bgm-toggle" aria-pressed="false" aria-label="배경음악 켜기/끄기"><span class="bgm-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="bgm-label">Music Off</span></button><label class="bgm-vol" for="bgm-volume"><span class="sr-only">배경음악 소리 크기</span><input type="range" id="bgm-volume" min="0" max="100" step="5" value="40"></label></div>
+<div class="bgm" id="bgm-box" data-open="false" hidden>
+  <button type="button" class="bgm-fold" id="bgm-fold" aria-expanded="false" aria-controls="bgm-panel" aria-label="음악 막대 펼치기">
+    <span class="bgm-bars" aria-hidden="true"><i></i><i></i><i></i></span><span class="bgm-close" aria-hidden="true">›</span>
+  </button>
+  <div class="bgm-panel" id="bgm-panel">
+    <button type="button" class="bgm-toggle" id="bgm-toggle" aria-pressed="false" aria-label="배경음악 켜기/끄기"><span class="bgm-label">Music Off</span></button>
+    <label class="bgm-vol" for="bgm-volume"><span class="sr-only">배경음악 소리 크기</span><input type="range" id="bgm-volume" min="0" max="100" step="5" value="40"></label>
+  </div>
+</div>
 <script type="module" src="app.js"></script>
 </body>
 </html>
