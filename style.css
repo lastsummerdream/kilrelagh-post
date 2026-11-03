@@ -682,3 +682,10 @@ button,input,textarea,select,option{letter-spacing:inherit;font-kerning:none}
 @supports (-webkit-touch-callout: none){ .composer textarea{letter-spacing:var(--ls)} }
 /* 자간은 각 글자 크기에 맞춰 계산되게 (작은 글씨가 더 좁아 보이지 않게) */
 *{letter-spacing:var(--ls)}
+
+/* =====================================================================
+   기타 시스템 글씨(안내 문장, 빈 화면 안내, 오류, 설정 문장, 입력칸 등)를 11pt로
+   — 대화·글 본문(10pt), 이름, 제목, 버튼은 각자 크기 그대로
+   ===================================================================== */
+body{font-size:11pt}
+.empty,.empty strong,.notice,.notice strong,.error,.account-row > span,.gate .lead,.field > label{font-size:11pt}
