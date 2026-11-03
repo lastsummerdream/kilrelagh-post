@@ -322,13 +322,13 @@ function needChar() {
 // 채널 id → 음악 파일. 여기에 줄을 추가하면 그 채널에서도 음악이 나옵니다.
 // default: 채널이 아닌 화면(게시판, 쪽지함, 둘만의 방, 인물록, 내 캐릭터)과 음악이 없는 채널에서 나오는 곡
 const CHANNEL_MUSIC = {
-  default: "audio/default.mp3",
-  square: "audio/square.mp3",
-  school: "audio/school.mp3",
-  kilrelagh: "audio/kilrelagh.mp3",
-  chapel: "audio/chapel.mp3",
-  castle: "audio/castle.mp3",
-  marsh: "audio/marsh.mp3"
+  default: "default.mp3",
+  square: "square.mp3",
+  school: "school.mp3",
+  kilrelagh: "kilrelagh.mp3",
+  chapel: "chapel.mp3",
+  castle: "castle.mp3",
+  marsh: "marsh.mp3"
 };
 const tracks = {};
 let current = null;            // 지금 채널의 Audio
@@ -348,6 +348,8 @@ function ensureAudioCtx() {
   if (!IOS_AUDIO) return;
   const C = window.AudioContext || window.webkitAudioContext;
   if (!C) return;
+  // 무음 모드(옆 스위치)에서도 음악이 나오게: Safari 16.4+ 의 audioSession을 '재생' 용도로
+  try { if (navigator.audioSession) navigator.audioSession.type = "playback"; } catch (e) {}
   if (!actx) { try { actx = new C(); } catch (e) { return; } Object.values(tracks).forEach(connectTrack); }
   if (actx.state === "suspended") actx.resume().catch(() => {});
 }

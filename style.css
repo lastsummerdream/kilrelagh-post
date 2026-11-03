@@ -1,8 +1,8 @@
 /* Layout: a members-only edition of the Kilrelagh paper — blackletter mast, ruled section nav, then working columns (channel list | message log, conversation list | thread). Monochrome newsprint with one deep-green accent for "you" and actions. Phones stack to one column. */
-@font-face{font-family:"KoPub Batang Web";font-weight:400;font-display:swap;src:url(fonts/kopub-batang-medium.woff) format("woff")}
-@font-face{font-family:"KoPub Batang Web";font-weight:700;font-display:swap;src:url(fonts/kopub-batang-bold.woff) format("woff")}
-@font-face{font-family:"KoPub Dotum Web";font-weight:400;font-display:swap;src:url(fonts/kopub-dotum-medium.woff) format("woff")}
-@font-face{font-family:"KoPub Dotum Web";font-weight:700;font-display:swap;src:url(fonts/kopub-dotum-bold.woff) format("woff")}
+@font-face{font-family:"KoPub Batang Web";font-weight:400;font-display:swap;src:url(kopub-batang-medium.woff) format("woff")}
+@font-face{font-family:"KoPub Batang Web";font-weight:700;font-display:swap;src:url(kopub-batang-bold.woff) format("woff")}
+@font-face{font-family:"KoPub Dotum Web";font-weight:400;font-display:swap;src:url(kopub-dotum-medium.woff) format("woff")}
+@font-face{font-family:"KoPub Dotum Web";font-weight:700;font-display:swap;src:url(kopub-dotum-bold.woff) format("woff")}
 
 :root{
   --paper:#f3f2ed;
@@ -295,8 +295,8 @@ main{max-width:1180px;margin:0 auto;padding-left:var(--gutter);padding-right:max
 .facts{border-top-style:double;border-top-width:3px}
 
 /* ---------- Chat & body text: 10pt, 장평 92% (condensed font files), 자간 94% ---------- */
-@font-face{font-family:"KoPub Batang 92";font-weight:400;font-display:swap;src:url(fonts/kopub-batang-medium-92.woff) format("woff")}
-@font-face{font-family:"KoPub Dotum 92";font-weight:400;font-display:swap;src:url(fonts/kopub-dotum-medium-92.woff) format("woff")}
+@font-face{font-family:"KoPub Batang 92";font-weight:400;font-display:swap;src:url(kopub-batang-medium-92.woff) format("woff")}
+@font-face{font-family:"KoPub Dotum 92";font-weight:400;font-display:swap;src:url(kopub-dotum-medium-92.woff) format("woff")}
 .msg-text,.composer textarea{font-family:"KoPub Dotum 92",var(--f-sans);font-size:10pt;letter-spacing:-.06em}
 .msg.action .msg-text,.comment .msg-text,.letter .msg-text,.prose,.facts dd{font-family:"KoPub Batang 92",var(--f-serif);font-size:10pt;letter-spacing:-.06em}
 .prose{line-height:1.8}
