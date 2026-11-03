@@ -298,6 +298,7 @@ main{max-width:1180px;margin:0 auto;padding-left:var(--gutter);padding-right:max
 @font-face{font-family:"KoPub Batang 92";font-weight:400;font-display:swap;src:url(kopub-batang-medium-92.woff?v=2) format("woff")}
 @font-face{font-family:"KoPub Dotum 92";font-weight:400;font-display:swap;src:url(kopub-dotum-medium-92.woff?v=2) format("woff")}
 @font-face{font-family:"KoPub Dotum 92";font-weight:700;font-display:swap;src:url(kopub-dotum-bold-92.woff) format("woff")}
+@font-face{font-family:"KoPub Batang 92";font-weight:700;font-display:swap;src:url(kopub-batang-bold-92.woff) format("woff")}
 @font-face{font-family:"KoPub Dotum 94";font-weight:700;font-display:swap;src:url(kopub-dotum-bold-94.woff) format("woff")}
 .msg-text,.composer textarea{font-family:"KoPub Dotum 92",var(--f-sans);font-size:10pt;letter-spacing:-.06em}
 .msg.action .msg-text,.comment .msg-text,.letter .msg-text,.prose,.facts dd{font-family:"KoPub Batang 92",var(--f-serif);font-size:10pt;letter-spacing:-.06em}
@@ -661,3 +662,23 @@ html.in-app .whoami select{height:20px;font-size:.74rem}
 /* 휴대폰 위 메뉴 탭 높이 10% 키움 ('말하는 인물' 줄은 그대로) */
 @media (max-width: 860px){ .nav a{padding-top:4.7px;padding-bottom:4.7px} }
 html.in-app .nav a{padding-top:3.55px;padding-bottom:3.55px}
+
+/* =====================================================================
+   모든 본문을 같은 장평 92% · 자간 94%로 (컴퓨터 · 휴대폰 · 앱 · 설정 화면 모두)
+   — 예외: 맨 위 신문 제호와 날짜 줄, 영문 표찰(SETTINGS 같은 것), 페이지 큰 제목
+   ===================================================================== */
+:root{
+  --ls:-.06em;
+  --f-sans:"KoPub Dotum 92","KoPub Dotum Web","Noto Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  --f-serif:"KoPub Batang 92","KoPub Batang Web","Noto Serif KR","AppleMyungjo","Batang",serif;
+  --f-cap:"Old Standard TT","KoPub Batang 92","Times New Roman",Georgia,serif;
+}
+body{letter-spacing:var(--ls);font-kerning:none;font-feature-settings:"kern" 0,"palt" 0}
+button,input,textarea,select,option{letter-spacing:inherit;font-kerning:none}
+.msg-text,.composer textarea,.msg.action .msg-text,.comment .msg-text,.letter .msg-text,.prose,.facts dd,.btn,
+.page-head h2 small,.whoami select,.chan-select{letter-spacing:var(--ls)}
+/* 한글이 들어가는 작은 제목·표찰도 본문과 같은 간격으로 (넓게 벌어져 보이지 않게) */
+.room-sec,.comments h3,.channels h3,.facts dt,.day,.loading,.tag.npc,.board-head{letter-spacing:var(--ls)}
+@supports (-webkit-touch-callout: none){ .composer textarea{letter-spacing:var(--ls)} }
+/* 자간은 각 글자 크기에 맞춰 계산되게 (작은 글씨가 더 좁아 보이지 않게) */
+*{letter-spacing:var(--ls)}

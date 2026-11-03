@@ -21,8 +21,8 @@ export default {
     if (req.method === "GET" && url.pathname === "/") return text("킬렐러 우체국 알림 중계소가 일하고 있습니다.", 200, cors);
     if (req.method !== "POST" || url.pathname !== "/notify") return text("not found", 404, cors);
     try {
-      if (!env.FIREBASE_SERVICE_ACCOUNT) return text("FIREBASE_SERVICE_ACCOUNT secret is missing", 500, cors);
-      const sa = JSON.parse(env.FIREBASE_SERVICE_ACCOUNT);
+      const sa = readServiceAccount(env.FIREBASE_SERVICE_ACCOUNT);
+      if (sa.error) return text(sa.error, 500, cors);
       const g = new Google(sa);
       const idToken = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
       const caller = await verifyIdToken(idToken, sa.project_id).catch(() => null);
@@ -31,6 +31,10 @@ export default {
       const body = await req.json().catch(() => ({}));
       const job = await plan(g, caller, body);
       if (!job) return json({ sent: 0 }, 200, cors);
+      if (job.test) {                        // 시험 푸시: 끝까지 보내 보고 결과를 그대로 돌려줌
+        const results = await deliver(g, job);
+        return json({ test: true, tokens: results.length, results }, 200, cors);
+      }
       ctx.waitUntil(deliver(g, job));       // 응답은 바로 돌려주고, 보내기는 뒤에서
       return json({ queued: job.to.length }, 200, cors);
     } catch (e) {
@@ -39,10 +43,31 @@ export default {
   }
 };
 
+/* ---------------- 관리자 키 읽기: Secret(글자)로 넣었든 JSON 형식 변수로 넣었든 둘 다 받음 ---------------- */
+function readServiceAccount(v) {
+  if (!v) return { error: "FIREBASE_SERVICE_ACCOUNT가 비어 있습니다. Cloudflare → Settings → Variables and Secrets에 Firebase 관리자 키 JSON을 넣어 주세요." };
+  let o = v;
+  if (typeof v === "string") {
+    const t = v.trim().replace(/^['"`]+|['"`]+$/g, "");
+    try { o = JSON.parse(t); }
+    catch (e) {
+      return { error: t.startsWith("B") && t.length < 120
+        ? "FIREBASE_SERVICE_ACCOUNT에 웹 푸시 키(vapidKey)가 들어 있습니다. Firebase 관리자 키 JSON 전체({ \"type\": \"service_account\" ... })로 바꿔 주세요."
+        : "FIREBASE_SERVICE_ACCOUNT를 JSON으로 읽지 못했습니다. 관리자 키 파일의 { 부터 } 까지 전부 붙여 넣었는지 확인해 주세요." };
+    }
+  }
+  if (!o || typeof o !== "object" || !o.private_key || !o.client_email || !o.project_id)
+    return { error: "FIREBASE_SERVICE_ACCOUNT에 private_key·client_email·project_id가 없습니다. Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성으로 받은 JSON을 넣어 주세요." };
+  return o;
+}
+
 /* ---------------- 받을 사람과 내용 정하기 (클라이언트 말은 믿지 않고 Firestore에서 다시 읽음) ---------------- */
 const SAFE_ID = /^[A-Za-z0-9_\-]{1,200}$/;
 async function plan(g, caller, b) {
   const kind = b && b.kind;
+  if (kind === "test") {
+    return { to: [caller], test: true, title: "✠ 킬렐러 우체국 · 푸시 시험", body: "이 알림이 보이면 푸시 알림이 잘 오는 거예요.", hash: "#/settings/notify", tag: "test" };
+  }
   if (kind === "dm" || kind === "room") {
     if (!SAFE_ID.test(b.id || "")) return null;
     const col = kind === "dm" ? "dms" : "rooms";
@@ -98,20 +123,22 @@ function mentionedOwners(text, chars, caller) {
 
 /* ---------------- 보내기 ---------------- */
 async function deliver(g, job) {
-  const body = clip(job.body, 150);
+  const body = clip(job.body, 150), results = [];
   for (const uid of job.to) {
     const doc = await g.get(`pushTokens/${uid}`);
-    const tokens = doc && doc.tokens ? Object.keys(doc.tokens) : [];
-    for (const token of tokens) {
+    const tokens = doc && doc.tokens ? doc.tokens : {};
+    for (const token of Object.keys(tokens)) {
       const r = await g.fcm({
         token,
-        data: { title: job.title, body, hash: job.hash, tag: job.tag || job.hash },
+        data: { title: job.title, body, hash: job.hash, tag: job.tag || job.hash, test: job.test ? "1" : "0" },
         android: { priority: "high", ttl: "86400s" },
         webpush: { headers: { Urgency: "high", TTL: "86400" } }
       });
-      if (r === "gone") await g.removeToken(uid, token);
+      results.push({ platform: (tokens[token] && tokens[token].platform) || "?", result: r.result, status: r.status, detail: r.detail });
+      if (r.result === "gone") await g.removeToken(uid, token);
     }
   }
+  return results;
 }
 function clip(s, n) { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
 
@@ -193,10 +220,11 @@ class Google {
     const r = await this.call(`https://fcm.googleapis.com/v1/projects/${this.pid}/messages:send`, {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ message })
     });
-    if (r.ok) return "ok";
+    if (r.ok) return { result: "ok", status: r.status, detail: "" };
     const t = await r.text();
-    if (r.status === 404 || /UNREGISTERED|registration-token-not-registered|INVALID_ARGUMENT.*token|not a valid FCM registration token/i.test(t)) return "gone";
-    return "fail";
+    const detail = t.replace(/\s+/g, " ").slice(0, 300);
+    if (r.status === 404 || /UNREGISTERED|registration-token-not-registered|INVALID_ARGUMENT.*token|not a valid FCM registration token/i.test(t)) return { result: "gone", status: r.status, detail };
+    return { result: "fail", status: r.status, detail };
   }
 }
 
