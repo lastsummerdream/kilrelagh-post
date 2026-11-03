@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "772073932998",
+    "project_id": "the-kilrelagh-post",
+    "storage_bucket": "the-kilrelagh-post.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:772073932998:android:5d5f083f21f6ebcc772fc7",
+        "android_client_info": {
+          "package_name": "post.kilrelagh.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCFfAGLtBscD8kPlLynRdr552MiM9KcZrA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
