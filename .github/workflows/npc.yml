@@ -19,19 +19,14 @@ jobs:
   speak:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: npc
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
       - run: npm install --omit=dev --no-audit --no-fund
-      - run: node run.mjs
+      - run: node npc.mjs
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
           NPC_FORCE: ${{ github.event_name == 'workflow_dispatch' && inputs.force }}
-
-
