@@ -28,13 +28,23 @@ mkdir -p "$OUT/app/src/main/java/$PKG_DIR" \
 # ---------- 서명 열쇠 ----------
 KS="$OUT/release.p12"
 KS_PASS="kilrelagh-post"
+KS_OK=0
 if [ -n "${ANDROID_KEYSTORE:-}" ]; then
-  printf '%s' "$ANDROID_KEYSTORE" | tr -d ' \r\n' | base64 -d > "$KS"
-  echo "저장해 둔 서명 열쇠(ANDROID_KEYSTORE)로 서명합니다."
-else
+  # 붙여 넣을 때 섞인 공백·줄바꿈·따옴표 같은 것은 걸러 냄
+  CLEAN="$(printf '%s' "$ANDROID_KEYSTORE" | tr -cd 'A-Za-z0-9+/=')"
+  if printf '%s' "$CLEAN" | base64 -d > "$KS" 2>/dev/null \
+     && keytool -list -keystore "$KS" -storetype PKCS12 -storepass "$KS_PASS" -alias kilrelagh >/dev/null 2>&1; then
+    KS_OK=1; echo "저장해 둔 서명 열쇠(ANDROID_KEYSTORE)로 서명합니다."
+  else
+    echo "::warning::ANDROID_KEYSTORE 값이 올바르지 않습니다 (글자 수 ${#CLEAN}자, 정상은 3,456자 안팎). ANDROID_KEYSTORE.txt를 메모장으로 열어 Ctrl+A로 전부 복사해 Secret을 다시 넣어 주세요. 이번에는 임시 열쇠로 만듭니다."
+  fi
+fi
+if [ "$KS_OK" != 1 ]; then
+  rm -f "$KS"
   keytool -genkeypair -keystore "$KS" -storetype PKCS12 -storepass "$KS_PASS" -keypass "$KS_PASS" \
     -alias kilrelagh -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Kilrelagh Post" >/dev/null 2>&1
-  echo "::warning::Secrets에 ANDROID_KEYSTORE가 없어 이번만 쓰는 임시 열쇠로 서명했습니다. 다음에 새로 만든 앱은 기존 앱 위에 덮어 설치되지 않으니(지우고 다시 설치), 안내에 따라 ANDROID_KEYSTORE를 넣어 두세요."
+  [ -z "${ANDROID_KEYSTORE:-}" ] && echo "::warning::Secrets에 ANDROID_KEYSTORE가 없어 이번만 쓰는 임시 열쇠로 서명했습니다."
+  echo "::warning::임시 열쇠로 만든 앱은 나중에 정식 열쇠로 만든 앱과 서로 덮어 설치되지 않습니다 (그때는 지우고 다시 설치)."
 fi
 
 # ---------- 푸시 알림 (Secrets의 GOOGLE_SERVICES_JSON이 있을 때만) ----------
