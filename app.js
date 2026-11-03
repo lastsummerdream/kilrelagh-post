@@ -693,6 +693,7 @@ async function pushDiagnose(out) {
     const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "test" }) });
     const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
     if (!r.ok || !j) { add(false, "시험 푸시", r.status + " " + t.slice(0, 200)); return lines; }
+    if (j.test !== true) { add(false, "시험 푸시", "중계소 코드가 예전 버전입니다. Cloudflare에서 push-worker.js 내용을 다시 붙여 넣고 Deploy를 눌러 주세요."); return lines; }
     const okN = (j.results || []).filter(x => x.result === "ok").length;
     add(okN > 0, "시험 푸시 보냄", `등록된 기기 ${j.tokens}곳 중 ${okN}곳 성공`);
     for (const x of j.results || []) if (x.result !== "ok") add(false, `  ${x.platform} 기기`, `${x.result} ${x.status} ${x.detail || ""}`.slice(0, 260));
