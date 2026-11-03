@@ -1670,7 +1670,7 @@ function processAvatar(fileObj, dots, crop) {
     const img = new Image();
     img.onload = () => {
       try {
-        const N = dots ? 192 : 240;
+        const N = dots ? 256 : 240;   // 도트 그림은 256×256 점으로 (예전 192)
         const cv = document.createElement("canvas"); cv.width = N; cv.height = N;
         const cx = cv.getContext("2d");
         const s0 = Math.min(img.width, img.height);
