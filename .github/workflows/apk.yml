@@ -1,0 +1,36 @@
+# 킬렐러 우체국 — 안드로이드 앱(APK) 만들기
+name: 안드로이드 앱 만들기
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - run: bash build-apk.sh
+        env:
+          ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+          VERSION_CODE: ${{ github.run_number }}
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: app
+          name: 킬렐러 우체국 안드로이드 앱
+          body: |
+            휴대폰에서 아래 kilrelagh-post.apk를 눌러 내려받고 설치하세요.
+            처음 설치할 때 '출처를 알 수 없는 앱' 허용을 물으면 허용하면 됩니다.
+          files: kilrelagh-post.apk
+          make_latest: true
