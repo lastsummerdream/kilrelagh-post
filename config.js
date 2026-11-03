@@ -8,4 +8,6 @@ export const firebaseConfig = {
   messagingSenderId: "772073932998",
   appId: "1:772073932998:web:ecb7da19a97bea31772fc7",
   measurementId: "G-428K48433H"
+  vapidKey: "①에서 복사한 웹 푸시 키",
+  relay: "③에서 복사한 중계소 주소"
 };
