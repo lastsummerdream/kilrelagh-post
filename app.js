@@ -1211,12 +1211,27 @@ function viewCharForm(charId) {
   const dither = h("input", { type: "checkbox", id: "c-dither", checked: true });
   const file = h("input", { type: "file", id: "c-file", accept: "image/*", class: "input" });
   function drawPreview() { preview.replaceChildren(avatar({ name: f.name.value, avatar: avatarData }, 112, f.name.value)); }
+  let srcFile = null, srcCrop = null;            // 고른 그림과 자른 위치 (도트 켜고 끌 때 다시 쓰려고 기억)
+  const recrop = h("button", { class: "linkbtn", type: "button", text: "다시 자르기", hidden: true, style: "align-self:flex-start", onclick: () => pickCrop() });
+  async function render() {
+    if (!srcFile) return;
+    try { avatarData = await processAvatar(srcFile, dither.checked, srcCrop); drawPreview(); }
+    catch (e) { toast("이미지를 읽지 못했습니다."); }
+  }
+  async function pickCrop() {
+    if (!srcFile) return;
+    const c = await openCropper(srcFile);
+    if (!c) return;                               // 취소하면 그대로
+    srcCrop = c; recrop.hidden = false; render();
+  }
   file.addEventListener("change", async () => {
     const fl = file.files && file.files[0]; if (!fl) return;
-    try { avatarData = await processAvatar(fl, dither.checked); drawPreview(); }
-    catch (e) { toast("이미지를 읽지 못했습니다."); }
+    const c = await openCropper(fl);
+    file.value = "";                              // 같은 그림을 다시 골라도 열리게
+    if (!c) return;
+    srcFile = fl; srcCrop = c; recrop.hidden = false; render();
   });
-  dither.addEventListener("change", () => file.dispatchEvent(new Event("change")));
+  dither.addEventListener("change", render);
   const btn = h("button", { class: "btn primary", type: "submit", text: ex ? "저장" : "인물 등록" });
 
   mount(
@@ -1247,10 +1262,10 @@ function viewCharForm(charId) {
       h("div", { class: "field" },
         h("label", { for: "c-file", text: "프로필 그림" }),
         h("div", { class: "avatar-edit" }, preview,
-          h("div", { style: "display:flex;flex-direction:column;gap:8px;min-width:0;flex:1" }, file,
+          h("div", { style: "display:flex;flex-direction:column;gap:8px;min-width:0;flex:1" }, file, recrop,
             h("label", { class: "check", for: "c-dither" }, dither, "도트(흑백 점묘)로 바꾸기"),
             avatarData ? h("button", { class: "linkbtn", type: "button", text: "그림 지우기", style: "align-self:flex-start", onclick: () => { avatarData = ""; drawPreview(); } }) : null)),
-        h("span", { class: "hint", text: "정사각형으로 잘려 작게 저장됩니다." })),
+        h("span", { class: "hint", text: "그림을 고르면 정사각형으로 자를 곳을 정할 수 있습니다. 작게 줄여 저장됩니다." })),
       h("div", { class: "form-grid" },
         h("div", { class: "field" }, h("label", { for: "c-name", text: "이름 *" }), f.name),
         h("div", { class: "field" }, h("label", { for: "c-en", text: "영문 이름" }), f.nameEn),
@@ -1415,7 +1430,85 @@ function viewRoom(roomId) {
 }
 
 /* 프로필 그림: 정사각형으로 자르고 흑백(또는 1비트 도트)으로 줄여 저장 */
-function processAvatar(fileObj, dots) {
+/* ---------- 1:1 자르기 창: 끌어서 옮기고, 막대·휠·두 손가락으로 확대 ---------- */
+function openCropper(fileObj) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(fileObj);
+    const img = new Image();
+    img.onerror = () => { URL.revokeObjectURL(url); toast("이미지를 읽지 못했습니다."); resolve(null); };
+    img.onload = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      const stage = h("div", { class: "crop-stage", tabindex: "0", "aria-label": "자를 곳. 끌어서 옮기고, 아래 막대로 확대합니다. 화살표 키로도 옮길 수 있습니다." });
+      const pic = h("img", { class: "crop-img", src: url, alt: "", draggable: "false" });
+      stage.append(pic, h("span", { class: "crop-grid", "aria-hidden": "true" }));
+      const zoom = h("input", { type: "range", min: "1", max: "4", step: "0.01", value: "1", class: "crop-zoom", "aria-label": "확대" });
+      let V = 0, base = 1, z = 1, x = 0, y = 0;
+      const scale = () => base * z;
+      function clamp() {
+        const sw = W * scale(), sh = H * scale();
+        x = Math.min(0, Math.max(V - sw, x)); y = Math.min(0, Math.max(V - sh, y));
+      }
+      function draw() { clamp(); pic.style.width = W * scale() + "px"; pic.style.height = H * scale() + "px"; pic.style.transform = `translate(${x}px, ${y}px)`; }
+      function layout() {
+        const old = V ? { cx: (V / 2 - x) / scale(), cy: (V / 2 - y) / scale() } : null;
+        V = stage.clientWidth; base = V / Math.min(W, H);
+        if (old) { x = V / 2 - old.cx * scale(); y = V / 2 - old.cy * scale(); }
+        else { x = (V - W * scale()) / 2; y = (V - H * scale()) / 2; }
+        draw();
+      }
+      function setZoom(nz, ax = V / 2, ay = V / 2) {   // ax, ay: 이 점을 중심으로 확대
+        nz = Math.max(1, Math.min(4, nz));
+        const ix = (ax - x) / scale(), iy = (ay - y) / scale();
+        z = nz; x = ax - ix * scale(); y = ay - iy * scale();
+        zoom.value = String(z); draw();
+      }
+      zoom.addEventListener("input", () => setZoom(parseFloat(zoom.value)));
+      const pts = new Map(); let last = null;
+      stage.addEventListener("pointerdown", (e) => { stage.setPointerCapture(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY }); last = null; stage.classList.add("dragging"); });
+      stage.addEventListener("pointermove", (e) => {
+        if (!pts.has(e.pointerId)) return;
+        const prev = pts.get(e.pointerId); pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        if (pts.size === 1) { x += e.clientX - prev.x; y += e.clientY - prev.y; draw(); return; }
+        const [a, b] = [...pts.values()];
+        const d = Math.hypot(a.x - b.x, a.y - b.y), r = stage.getBoundingClientRect();
+        const mx = (a.x + b.x) / 2 - r.left, my = (a.y + b.y) / 2 - r.top;
+        if (last) { x += mx - last.mx; y += my - last.my; setZoom(z * d / last.d, mx, my); }
+        last = { d, mx, my };
+      });
+      const up = (e) => { pts.delete(e.pointerId); last = null; if (!pts.size) stage.classList.remove("dragging"); };
+      stage.addEventListener("pointerup", up); stage.addEventListener("pointercancel", up);
+      stage.addEventListener("wheel", (e) => { e.preventDefault(); const r = stage.getBoundingClientRect(); setZoom(z * Math.exp(-e.deltaY * 0.0015), e.clientX - r.left, e.clientY - r.top); }, { passive: false });
+      stage.addEventListener("keydown", (e) => {
+        const k = { ArrowLeft: [8, 0], ArrowRight: [-8, 0], ArrowUp: [0, 8], ArrowDown: [0, -8] }[e.key];
+        if (k) { e.preventDefault(); x += k[0]; y += k[1]; draw(); }
+        else if (e.key === "+" || e.key === "=") setZoom(z * 1.1);
+        else if (e.key === "-") setZoom(z / 1.1);
+      });
+      function close(result) {
+        window.removeEventListener("resize", layout); document.removeEventListener("keydown", onKey, true);
+        overlay.remove(); URL.revokeObjectURL(url); resolve(result);
+      }
+      function onKey(e) { if (e.key === "Escape") { e.preventDefault(); close(null); } else if (e.key === "Enter" && e.target !== zoom) { e.preventDefault(); done(); } }
+      function done() { const sc = scale(); close({ sx: -x / sc, sy: -y / sc, s: V / sc }); }
+      const overlay = h("div", { class: "crop-overlay", role: "dialog", "aria-modal": "true", "aria-label": "프로필 그림 자르기" },
+        h("div", { class: "crop-panel" },
+          h("h3", { class: "room-sec", text: "✠ 정사각형으로 자르기" }),
+          stage,
+          h("div", { class: "crop-row" }, h("span", { class: "muted", text: "작게" }), zoom, h("span", { class: "muted", text: "크게" })),
+          h("p", { class: "muted crop-help", text: "끌어서 옮기고, 막대나 두 손가락으로 크기를 맞추세요." }),
+          h("div", { class: "actions", style: "margin:0;justify-content:flex-end" },
+            h("button", { class: "btn", type: "button", text: "취소", onclick: () => close(null) }),
+            h("button", { class: "btn primary", type: "button", text: "이대로 자르기", onclick: done }))));
+      overlay.addEventListener("pointerdown", (e) => { if (e.target === overlay) close(null); });
+      document.body.append(overlay);
+      window.addEventListener("resize", layout); document.addEventListener("keydown", onKey, true);
+      requestAnimationFrame(() => { layout(); stage.focus(); });
+    };
+    img.src = url;
+  });
+}
+
+function processAvatar(fileObj, dots, crop) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(fileObj);
     const img = new Image();
@@ -1424,8 +1517,10 @@ function processAvatar(fileObj, dots) {
         const N = dots ? 192 : 240;
         const cv = document.createElement("canvas"); cv.width = N; cv.height = N;
         const cx = cv.getContext("2d");
-        const s = Math.min(img.width, img.height);
-        cx.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, N, N);
+        const s0 = Math.min(img.width, img.height);
+        const c = crop && crop.s > 0 ? crop : { sx: (img.width - s0) / 2, sy: (img.height - s0) / 2, s: s0 };
+        cx.fillStyle = "#f3f2ed"; cx.fillRect(0, 0, N, N);
+        cx.drawImage(img, c.sx, c.sy, c.s, c.s, 0, 0, N, N);
         const id = cx.getImageData(0, 0, N, N), px = id.data;
         const g = new Float32Array(N * N);
         let lo = 255, hi = 0;

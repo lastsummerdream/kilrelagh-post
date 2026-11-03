@@ -403,3 +403,19 @@ input[type="checkbox"], input[type="radio"], input[type="file"], input[type="ran
 /* ===== 알림 안내 띠 (누르면 그 대화로) ===== */
 .toast.link{cursor:url(cursor.png) 0 0, pointer;text-decoration:underline;text-underline-offset:3px}
 @media (max-width: 560px){ .toast{bottom:calc(64px + env(safe-area-inset-bottom, 0px))} }
+
+/* ===== 프로필 그림 1:1 자르기 ===== */
+.crop-overlay{position:fixed;inset:0;z-index:80;background:rgba(20,20,20,.72);display:flex;align-items:center;justify-content:center;padding:16px}
+.crop-panel{background:var(--paper);border:.5px solid var(--ink);outline:.5px solid var(--ink);outline-offset:3px;padding:16px 18px 18px;width:min(420px,100%);max-height:calc(100vh - 32px);overflow:auto}
+.crop-panel .room-sec{margin-top:0}
+.crop-stage{position:relative;width:100%;aspect-ratio:1/1;overflow:hidden;background:var(--hair, #ddd);border:.5px solid var(--ink);touch-action:none;user-select:none;-webkit-user-select:none;cursor:url(cursor.png) 0 0, grab}
+.crop-stage.dragging{cursor:url(cursor.png) 0 0, grabbing}
+.crop-stage:focus-visible{outline:2px solid var(--green);outline-offset:2px}
+.crop-img{position:absolute;left:0;top:0;max-width:none;transform-origin:0 0;pointer-events:none;-webkit-user-drag:none}
+.crop-grid{position:absolute;inset:0;pointer-events:none;
+  background:linear-gradient(to right,transparent calc(33.33% - .5px),rgba(243,242,237,.55) calc(33.33% - .5px),rgba(243,242,237,.55) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(243,242,237,.55) calc(66.66% - .5px),rgba(243,242,237,.55) calc(66.66% + .5px),transparent calc(66.66% + .5px)),
+             linear-gradient(to bottom,transparent calc(33.33% - .5px),rgba(243,242,237,.55) calc(33.33% - .5px),rgba(243,242,237,.55) calc(33.33% + .5px),transparent calc(33.33% + .5px),transparent calc(66.66% - .5px),rgba(243,242,237,.55) calc(66.66% - .5px),rgba(243,242,237,.55) calc(66.66% + .5px),transparent calc(66.66% + .5px));
+  box-shadow:inset 0 0 0 1px rgba(20,20,20,.35)}
+.crop-row{display:flex;align-items:center;gap:10px;margin:14px 0 4px;font-size:.82rem}
+.crop-zoom{flex:1;accent-color:var(--green)}
+.crop-help{font-size:.82rem;margin:4px 0 14px}
