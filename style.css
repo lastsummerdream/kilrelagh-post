@@ -393,3 +393,9 @@ main{max-width:1180px;margin:0 auto;padding-left:var(--gutter);padding-right:max
 .bgm-vol input:focus-visible{outline:2px solid var(--paper);outline-offset:2px}
 @supports (-webkit-touch-callout: none) { .bgm-vol input { font-size:16px !important; } }
 @media (max-width: 560px){ .bgm-vol input{width:72px} .bgm-toggle{padding:7px 10px} }
+
+/* ===== 마우스 커서 (use10) — 글자 입력칸은 기본 I자 커서 유지 ===== */
+html, body{cursor:url(cursor.png) 0 0, auto}
+a, button, select, label, summary, [role="button"], .linkbtn, .btn, .msg-del, .bgm-toggle, .bgm-vol input,
+input[type="checkbox"], input[type="radio"], input[type="file"], input[type="range"]{cursor:url(cursor.png) 0 0, pointer !important}
+.btn:disabled, button:disabled{cursor:not-allowed !important}
