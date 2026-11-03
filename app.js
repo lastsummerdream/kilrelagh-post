@@ -5,10 +5,14 @@ import {
   signOut, updatePassword, EmailAuthProvider, reauthenticateWithCredential
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
 import {
-  getFirestore, doc, getDoc, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where,
-  orderBy, limit, limitToLast, onSnapshot, serverTimestamp, writeBatch, increment
+  getFirestore, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, collection, query, where,
+  orderBy, limit, limitToLast, onSnapshot, serverTimestamp, writeBatch, increment, deleteField, FieldPath
 } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
-import { firebaseConfig } from "./config.js";
+import {
+  getMessaging, getToken, deleteToken, isSupported as msgSupported
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-messaging.js";
+import * as CFG from "./config.js";
+const firebaseConfig = CFG.firebaseConfig;
 
 /* ============================== 입력창 자동 확대 막기 ============================== */
 // iPhone·iPad의 Safari는 16px보다 작은 글씨의 입력창을 누르면 화면을 자동으로 확대합니다.
@@ -70,10 +74,12 @@ function h(tag, attrs, ...kids) {
 }
 function mount(...nodes) { $app.replaceChildren(...nodes.flat().filter(n => n !== null && n !== undefined && n !== false)); }
 let toastTimer = null;
-function toast(msg) {
+function toast(msg, hash) {
   $toast.textContent = msg; $toast.hidden = false;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $toast.hidden = true; }, 2600);
+  if (hash) { $toast.dataset.hash = hash; $toast.classList.add("link"); } else { delete $toast.dataset.hash; $toast.classList.remove("link"); }
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { $toast.hidden = true; }, hash ? 6000 : 2600);
 }
+$toast.addEventListener("click", () => { if ($toast.dataset.hash) location.hash = $toast.dataset.hash; $toast.hidden = true; });
 function toDate(ts) {
   if (!ts) return null;
   if (typeof ts.toDate === "function") return ts.toDate();
@@ -280,6 +286,7 @@ function startMember() {
       .sort((a, b) => (toDate(b.lastAt) || 0) - (toDate(a.lastAt) || 0));
     const n = S.convs.filter(isUnread).length;
     $badge.textContent = n; $badge.hidden = n === 0;
+    try { noticeDms(snap); } catch (e) {}
     if (S.refresh) S.refresh();
   }, () => {}));
 
@@ -288,8 +295,11 @@ function startMember() {
       .sort((a, b) => (toDate(b.lastAt) || 0) - (toDate(a.lastAt) || 0));
     const n = S.rooms.filter(r => !r.closed && isUnread(r)).length;
     $roomBadge.textContent = n; $roomBadge.hidden = n === 0;
+    try { noticeRooms(snap); } catch (e) {}
     if (S.refresh) S.refresh();
   }, () => {}));
+
+  startNotices();
 }
 
 function isUnread(c) {
@@ -309,7 +319,7 @@ function drawWhoami() {
   $active.value = S.activeId || "";
 }
 $active.addEventListener("change", () => { S.activeId = $active.value; saveActive(S.activeId); toast(`${activeChar().name}(으)로 말합니다.`); if (S.refresh) S.refresh(); });
-document.getElementById("logout").addEventListener("click", () => signOut(auth));
+document.getElementById("logout").addEventListener("click", async () => { await disablePush(); signOut(auth); });
 
 function needChar() {
   return h("div", { class: "empty" },
@@ -419,6 +429,214 @@ $vol.addEventListener("input", () => {
   try { localStorage.setItem("kp-volume", String(volume)); } catch (e) {}
 });
 applyVolume();
+// 다른 앱·탭으로 가면 음악을 잠시 멈추고, 돌아오면 다시 (안드로이드 앱은 kp-app-hidden/visible 신호를 보냄)
+function bgmAway() { if (current && !current.paused) { current._away = true; current.pause(); } }
+function bgmBack() { if (current && current._away) { current._away = false; if (musicWanted) tryPlay(); } }
+document.addEventListener("visibilitychange", () => { if (document.hidden) bgmAway(); else bgmBack(); });
+window.addEventListener("kp-app-hidden", bgmAway);
+window.addEventListener("kp-app-visible", bgmBack);
+
+/* ============================== 알림 ============================== */
+// 새 쪽지, 둘만의 방의 새 말, 채팅에서 내 인물 이름이 불린 말, 내 글에 달린 새 댓글을 알려 줍니다.
+// 이 화면을 보고 있을 때는 아래쪽 안내 띠로, 다른 탭·앱에 가 있을 때는 기기 알림으로 보여 줍니다.
+// (사이트나 앱이 완전히 닫혀 있을 때는 알림이 오지 않습니다.)
+const NATIVE = window.KilrelaghApp || null;   // 안드로이드 앱 안에서만 존재
+let swReg = null;
+if (!NATIVE && "serviceWorker" in navigator) {
+  navigator.serviceWorker.register("sw.js").then(r => { swReg = r; }).catch(() => {});
+  navigator.serviceWorker.addEventListener("message", (e) => { if (e.data && typeof e.data.hash === "string" && e.data.hash.startsWith("#/")) location.hash = e.data.hash; });
+}
+function notifyOn() { try { return localStorage.getItem("kp-notify") !== "off"; } catch (e) { return true; } }
+function setNotifyOn(on) { try { localStorage.setItem("kp-notify", on ? "on" : "off"); } catch (e) {} }
+function notifyPermission() {
+  if (NATIVE) { try { return String(NATIVE.permission()); } catch (e) { return "unsupported"; } }
+  if (!("Notification" in window)) return "unsupported";
+  return Notification.permission;   // granted | denied | default
+}
+async function askNotifyPermission() {
+  if (NATIVE) { try { NATIVE.requestPermission(); } catch (e) {} return; }
+  if ("Notification" in window) { try { await Notification.requestPermission(); } catch (e) {} }
+  window.dispatchEvent(new Event("kp-notify-perm"));
+}
+function appAway() { return document.hidden || window.__kpAppHidden === true; }
+function osNotify(title, body, hash) {
+  if (notifyPermission() !== "granted") return false;
+  if (NATIVE) { try { NATIVE.show(title, body, hash); return true; } catch (e) { return false; } }
+  const opts = { body, tag: hash, icon: "icon-192.png", badge: "icon-192.png", data: { hash }, renotify: true };
+  if (swReg && swReg.showNotification) { swReg.showNotification(title, opts).catch(() => {}); return true; }
+  try { const n = new Notification(title, opts); n.onclick = () => { window.focus(); location.hash = hash; n.close(); }; return true; } catch (e) { return false; }
+}
+/* ---------- 푸시 알림: 사이트·앱이 닫혀 있어도 바로 오는 알림 ----------
+   보낼 때: 글을 남긴 사람의 화면이 알림 중계소(Cloudflare Worker)를 부르고, 중계소가 받을 사람에게 Firebase로 보냄.
+   받을 때: 이 기기의 '푸시 주소(토큰)'를 pushTokens/{내 uid}에 적어 둠. */
+const PUSH_CFG = CFG.pushConfig || {};
+const PUSH_RELAY = (PUSH_CFG.relay || "").trim().replace(/\/+$/, "");
+const NATIVE_PUSH = !!(NATIVE && NATIVE.pushToken);
+let messaging = null;
+function pushKey() { return "kp-push-" + uid(); }
+function pushReady() { try { return !!localStorage.getItem(pushKey()); } catch (e) { return false; } }
+async function webPushToken() {
+  if (!PUSH_CFG.vapidKey || !("serviceWorker" in navigator)) return "";
+  if (!(await msgSupported().catch(() => false))) return "";
+  const reg = swReg || await navigator.serviceWorker.register("sw.js");
+  swReg = reg;
+  await navigator.serviceWorker.ready;
+  messaging = messaging || getMessaging(fb);
+  return await getToken(messaging, { vapidKey: PUSH_CFG.vapidKey, serviceWorkerRegistration: reg });
+}
+async function enablePush() {
+  if (!uid() || !PUSH_RELAY || !notifyOn() || notifyPermission() !== "granted") return;
+  let t = "";
+  try { t = NATIVE_PUSH ? String(NATIVE.pushToken() || "") : await webPushToken(); } catch (e) { console.warn("푸시 등록 실패", e); }
+  if (!t) return;
+  try {
+    const old = localStorage.getItem(pushKey());
+    if (old === t) return;
+    await setDoc(doc(db, "pushTokens", uid()), { tokens: { [t]: { platform: NATIVE_PUSH ? "android" : "web", at: serverTimestamp() } } }, { merge: true });
+    if (old) { try { await updateDoc(doc(db, "pushTokens", uid()), new FieldPath("tokens", old), deleteField()); } catch (e) {} }
+    localStorage.setItem(pushKey(), t);
+    window.dispatchEvent(new Event("kp-notify-perm"));
+  } catch (e) { console.warn("푸시 주소 저장 실패", e); }
+}
+async function disablePush() {
+  if (!uid()) return;
+  let t = null; try { t = localStorage.getItem(pushKey()); } catch (e) {}
+  if (!t) return;
+  try { await updateDoc(doc(db, "pushTokens", uid()), new FieldPath("tokens", t), deleteField()); } catch (e) {}
+  try { localStorage.removeItem(pushKey()); } catch (e) {}
+  if (!NATIVE_PUSH && messaging) { try { await deleteToken(messaging); } catch (e) {} }
+}
+window.addEventListener("kp-push-token", () => { enablePush(); });   // 안드로이드 앱이 푸시 주소를 받았을 때
+async function pushOut(payload) {
+  if (!PUSH_RELAY || !auth.currentUser) return;
+  try {
+    const idt = await auth.currentUser.getIdToken();
+    fetch(PUSH_RELAY + "/notify", {
+      method: "POST", keepalive: true,
+      headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    }).catch(() => {});
+  } catch (e) {}
+}
+
+const noticeSeen = new Set();
+let noticeSince = 0;
+function notice(key, title, body, hash) {
+  if (noticeSeen.has(key)) return; noticeSeen.add(key);
+  if (!notifyOn()) return;
+  body = (body || "").replace(/\s+/g, " ").trim();
+  if (body.length > 120) body = body.slice(0, 118) + "…";
+  if (!appAway()) { if (location.hash !== hash) toast(`${title} — ${body}`, hash); return; }
+  if (pushReady()) return;          // 푸시 알림이 켜진 기기는 푸시가 대신 알려 줌 (두 번 울리지 않게)
+  osNotify(title, body, hash);
+}
+function isNew(ts) { const d = toDate(ts); return !!d && d.getTime() > noticeSince; }
+function charName(id, fallback) { const c = S.chars[id]; return c ? c.name : (fallback || "누군가"); }
+
+function noticeDms(snap) {
+  if (!noticeSince) return;
+  snap.docChanges().forEach(ch => {
+    if (ch.type === "removed") return;
+    const c = { id: ch.doc.id, ...ch.doc.data({ serverTimestamps: "estimate" }) };
+    if (!isUnread(c) || !isNew(c.lastAt)) return;
+    const p = convParts(c.id); const other = p ? p.otherId : (c.chars || []).find(x => !(S.chars[x] && S.chars[x].ownerUid === uid()));
+    notice(`dm:${c.id}:${toDate(c.lastAt).getTime()}`, `✉ ${charName(other)}의 쪽지`, c.lastText, "#/mail/" + c.id);
+  });
+}
+function noticeRooms(snap) {
+  if (!noticeSince) return;
+  snap.docChanges().forEach(ch => {
+    if (ch.type === "removed") return;
+    const r = { id: ch.doc.id, ...ch.doc.data({ serverTimestamps: "estimate" }) };
+    if (r.closed || !isUnread(r) || !isNew(r.lastAt)) return;
+    const other = roomOther(r, roomMine(r));
+    notice(`room:${r.id}:${toDate(r.lastAt).getTime()}`, `🕯 둘만의 방 · ${charName(other)}`, r.lastText, "#/rooms/" + r.id);
+  });
+}
+// 이름이 불렸는지: 전체 이름, 첫 이름(2자 이상), 영어 첫 이름(3자 이상) — 중계소(push-worker.js)와 같은 규칙
+function namesOf(c) {
+  const out = new Set();
+  const n = (c.name || "").trim(); if (n.length >= 2) out.add(n.toLowerCase());
+  const first = n.split(/\s+/)[0]; if (first && first.length >= 2) out.add(first.toLowerCase());
+  const en = (c.nameEn || "").trim().split(/\s+/)[0]; if (en && en.length >= 3) out.add(en.toLowerCase());
+  return [...out];
+}
+function callsMe(text) {
+  const t = (text || "").toLowerCase();
+  return S.myChars.some(c => namesOf(c).some(n => t.includes(n)));
+}
+function callsOthers(text) {
+  const t = (text || "").toLowerCase();
+  return S.charList.some(c => !c.npc && c.ownerUid && c.ownerUid !== uid() && c.ownerUid !== "npc" && namesOf(c).some(n => t.includes(n)));
+}
+function startNotices() {
+  noticeSince = Date.now();
+  const since = new Date(noticeSince);
+  // 채널: 내 인물 이름이 들어간 새 말
+  for (const chn of CHANNELS) {
+    S.globalUnsubs.push(onSnapshot(
+      query(collection(db, "channels", chn.id, "messages"), where("createdAt", ">", since), orderBy("createdAt", "desc"), limit(5)),
+      (snap) => snap.docChanges().forEach(ch => {
+        if (ch.type !== "added") return;
+        const m = ch.doc.data();
+        if (m.uid === uid() || !callsMe(m.text)) return;
+        notice("ch:" + ch.doc.id, `${charName(m.charId, m.charName)} · ${chn.name}`, m.text, "#/chat/" + chn.id);
+      }), () => {}));
+  }
+  // 내 글에 달린 새 댓글
+  const counts = new Map();
+  S.globalUnsubs.push(onSnapshot(query(collection(db, "posts"), where("uid", "==", uid())), (snap) => {
+    snap.docChanges().forEach(async ch => {
+      const p = ch.doc.data(); const before = counts.get(ch.doc.id);
+      counts.set(ch.doc.id, p.commentCount || 0);
+      if (ch.type !== "modified" || before === undefined || (p.commentCount || 0) <= before) return;
+      try {
+        const cs = await getDocs(query(collection(db, "posts", ch.doc.id, "comments"), orderBy("createdAt", "desc"), limit(1)));
+        cs.forEach(d => {
+          const cm = d.data();
+          if (cm.uid === uid()) return;
+          notice("cm:" + d.id, `💬 ${charName(cm.charId, cm.charName)}의 댓글 · ${p.title || "내 글"}`, cm.text, "#/board/" + ch.doc.id);
+        });
+      } catch (e) {}
+    });
+  }, () => {}));
+  enablePush();
+  // 처음 한 번만: 알림을 켤 수 있다고 알려 주기
+  try {
+    if (notifyPermission() === "default" && !localStorage.getItem("kp-notify-hint")) {
+      localStorage.setItem("kp-notify-hint", "1");
+      setTimeout(() => toast("알림을 받으려면 ‘내 캐릭터’ 맨 아래에서 알림을 켜 주세요.", "#/me"), 2500);
+    }
+  } catch (e) {}
+}
+
+function notifyBox() {
+  const box = h("section", { class: "account" });
+  function draw() {
+    const perm = notifyPermission(), on = notifyOn();
+    const row = (text, ...btns) => h("div", { class: "account-row" }, h("span", { text }), btns.length ? h("span", { class: "actions", style: "margin:0" }, ...btns) : null);
+    let body;
+    if (perm === "unsupported") {
+      body = row(/iP(hone|od|ad)/.test(navigator.userAgent) ? "아이폰은 Safari에서 ‘홈 화면에 추가’한 아이콘으로 열면 알림을 켤 수 있습니다 (iOS 16.4 이상)." : "이 브라우저는 알림을 지원하지 않습니다.");
+    } else if (perm === "denied") {
+      body = row("알림이 차단되어 있습니다. 브라우저나 휴대폰 설정에서 이 사이트(앱)의 알림을 허용해 주세요.");
+    } else if (perm === "default") {
+      body = row("새 쪽지, 둘만의 방, 내 이름이 불린 말, 내 글의 새 댓글을 알려 드립니다.",
+        h("button", { class: "btn small primary", type: "button", text: "알림 켜기", onclick: async () => { setNotifyOn(true); await askNotifyPermission(); draw(); enablePush(); } }));
+    } else {
+      body = row(on ? (pushReady() ? "알림을 받고 있습니다. 사이트나 앱이 닫혀 있어도 바로 옵니다." : "알림을 받고 있습니다.") : "알림이 꺼져 있습니다.",
+        on ? h("button", { class: "btn small", type: "button", text: "시험 알림", onclick: () => { if (!osNotify("✠ 킬렐러 우체국", "알림이 이렇게 옵니다.", "#/me")) toast("알림을 보내지 못했습니다."); } }) : null,
+        h("button", { class: "btn small", type: "button", text: on ? "알림 끄기" : "알림 켜기", onclick: async () => { setNotifyOn(!on); if (on) await disablePush(); else await enablePush(); draw(); } }));
+    }
+    box.replaceChildren(h("h3", { class: "room-sec", text: "✠ 알림" }), body,
+      h("p", { class: "muted", style: "font-size:.82rem;margin:8px 0 0", text: pushReady() ? "이 기기로 푸시 알림이 옵니다. 다른 기기에서도 받으려면 그 기기에서도 알림을 켜 주세요."
+        : PUSH_RELAY ? "알림을 켜면 이 기기에 푸시 알림이 등록됩니다. (컴퓨터 Chrome·Edge, 안드로이드 앱, 홈 화면에 추가한 아이폰)"
+        : "지금은 사이트나 앱이 열려 있을 때만 알림이 옵니다." }));
+  }
+  window.addEventListener("kp-notify-perm", () => { if (box.isConnected) { draw(); if (notifyPermission() === "granted") enablePush(); } });
+  draw();
+  return box;
+}
 
 /* ============================== 라우터 ============================== */
 window.addEventListener("hashchange", () => { if (S.charsReady) route(); });
@@ -518,9 +736,10 @@ function viewChat(chId) {
     if (text.length > 2000) { toast("2,000자까지 보낼 수 있습니다."); return; }
     ta.value = ""; autosize(ta);
     try {
-      await addDoc(collection(db, "channels", ch.id, "messages"), {
+      const ref = await addDoc(collection(db, "channels", ch.id, "messages"), {
         uid: uid(), charId: me.id, charName: me.name, text, kind, createdAt: serverTimestamp()
       });
+      if (callsOthers(text)) pushOut({ kind: "chat", channel: ch.id, id: ref.id });
     } catch (e) { toast(errText(e)); ta.value = text; autosize(ta); }
   }
   ta.addEventListener("keydown", (e) => {
@@ -593,10 +812,12 @@ function viewPost(postId) {
     btn.disabled = true;
     try {
       const b = writeBatch(db);
-      b.set(doc(collection(db, "posts", postId, "comments")), { uid: uid(), charId: me.id, charName: me.name, text, createdAt: serverTimestamp() });
+      const cref = doc(collection(db, "posts", postId, "comments"));
+      b.set(cref, { uid: uid(), charId: me.id, charName: me.name, text, createdAt: serverTimestamp() });
       b.update(doc(db, "posts", postId), { commentCount: increment(1), lastActivityAt: serverTimestamp() });
       await b.commit();
       ta.value = "";
+      pushOut({ kind: "comment", post: postId, id: cref.id });
     } catch (e) { toast(errText(e)); }
     btn.disabled = false;
   }
@@ -808,6 +1029,7 @@ function viewMail(convId) {
       }, { merge: true });
       b.set(doc(collection(db, "dms", convId, "messages")), { uid: uid(), charId: mineC.id, text, createdAt: serverTimestamp() });
       await b.commit();
+      pushOut({ kind: "dm", id: convId });
       if (!subbed) subscribe();
     } catch (e) { toast(errText(e)); ta.value = text; autosize(ta); }
     sendBtn.disabled = false;
@@ -960,6 +1182,7 @@ function viewMe() {
       h("div", null, h("span", { class: "kicker", text: "My Characters" }), h("h2", null, "내 캐릭터", h("small", { text: `한 계정에 ${MAX_CHARS}명까지 만들 수 있습니다` }))),
       S.myChars.length < MAX_CHARS ? h("a", { class: "btn primary", href: "#/me/new", text: "새 캐릭터" }) : null),
     list,
+    notifyBox(),
     accountBox(),
     isAdmin() ? resetsBox() : null);
   draw(); S.refresh = draw;
@@ -1173,6 +1396,7 @@ function viewRoom(roomId) {
       b.set(doc(collection(db, "rooms", roomId, "messages")), { uid: uid(), charId: me.id, charName: me.name, text, kind, createdAt: serverTimestamp() });
       b.update(doc(db, "rooms", roomId), { lastText: (kind === "action" ? "*" + text + "*" : text).slice(0, 80), lastAt: serverTimestamp(), lastSender: uid(), ["readAt." + uid()]: serverTimestamp() });
       await b.commit();
+      pushOut({ kind: "room", id: roomId });
     } catch (e) { toast(errText(e)); ta.value = text; autosize(ta); }
   }
   ta.addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.shiftKey && !isComposingKey(e)) { e.preventDefault(); send(); } });

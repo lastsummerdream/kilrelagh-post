@@ -6,7 +6,8 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { initializeApp, cert } from "firebase-admin/app";
-import { getFirestore, FieldValue, Timestamp } from "firebase-admin/firestore";
+import { getFirestore, FieldValue, FieldPath, Timestamp } from "firebase-admin/firestore";
+import { getMessaging } from "firebase-admin/messaging";
 
 const cfg = JSON.parse(await readFile(new URL("./npcs.json", import.meta.url), "utf8"));
 const CHANNEL_NAMES = {
@@ -36,6 +37,61 @@ if (!process.env.ANTHROPIC_API_KEY || !process.env.FIREBASE_SERVICE_ACCOUNT) {
 }
 initializeApp({ credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)) });
 const db = getFirestore();
+
+/* ---- 푸시 알림: NPC가 회원 인물의 이름을 부르거나 회원 글에 댓글을 달면 바로 알려 줌 ---- */
+let userCharsCache = null;
+async function userChars() {
+  if (!userCharsCache) userCharsCache = (await db.collection("characters").get()).docs.map(d => d.data())
+    .filter(c => !c.npc && c.ownerUid && c.ownerUid !== "npc");
+  return userCharsCache;
+}
+function namesOf(c) {
+  const out = new Set();
+  const n = (c.name || "").trim(); if (n.length >= 2) out.add(n.toLowerCase());
+  const first = n.split(/\s+/)[0]; if (first && first.length >= 2) out.add(first.toLowerCase());
+  const en = (c.nameEn || "").trim().split(/\s+/)[0]; if (en && en.length >= 3) out.add(en.toLowerCase());
+  return [...out];
+}
+async function mentionedOwners(text) {
+  const t = (text || "").toLowerCase(), to = new Set();
+  for (const c of await userChars()) if (namesOf(c).some(n => t.includes(n))) to.add(c.ownerUid);
+  return [...to];
+}
+function clipText(s, n) { s = String(s || "").replace(/\s+/g, " ").trim(); return s.length > n ? s.slice(0, n - 1) + "…" : s; }
+async function pushTo(uids, title, body, hash, tag) {
+  for (const uid of new Set(uids)) {
+    const snap = await db.doc(`pushTokens/${uid}`).get();
+    const tokens = Object.keys((snap.exists && snap.get("tokens")) || {});
+    for (const token of tokens) {
+      try {
+        await getMessaging().send({
+          token,
+          data: { title, body: clipText(body, 150), hash, tag: tag || hash },
+          android: { priority: "high", ttl: 86400 * 1000 },
+          webpush: { headers: { Urgency: "high", TTL: "86400" } }
+        });
+      } catch (e) {
+        const code = (e && e.code) || "";
+        if (/registration-token-not-registered|invalid-registration-token|invalid-argument/.test(code)) {
+          await db.doc(`pushTokens/${uid}`).update(new FieldPath("tokens", token), FieldValue.delete()).catch(() => {});
+        } else console.log("[푸시 실패]", code || e.message);
+      }
+    }
+  }
+}
+async function pushChat(n, ch, text) {
+  try {
+    const to = await mentionedOwners(text);
+    if (to.length) await pushTo(to, `${n.name} · ${CHANNEL_NAMES[ch] || ch}`, text, `#/chat/${ch}`, `chat:${ch}`);
+  } catch (e) { console.log("[푸시 건너뜀]", e.message); }
+}
+async function pushComment(n, postId, post, text) {
+  try {
+    const to = await mentionedOwners(text);
+    if (post.uid && post.uid !== "npc") to.push(post.uid);
+    if (to.length) await pushTo(to, `💬 ${n.name}의 댓글 · ${post.title || "게시판"}`, text, `#/board/${postId}`, `post:${postId}`);
+  } catch (e) { console.log("[푸시 건너뜀]", e.message); }
+}
 
 // ---------- 상태: 최근 대사, 화제, 마지막 확인 시각, 오늘의 게시글 일정 ----------
 // npcState 문서는 사이트 회원이 읽을 수 없습니다 (보안 규칙에 허용 항목이 없음).
@@ -181,6 +237,7 @@ async function replyInChannel(n, ch, trigger) {
   if (!text) return false;
   await db.collection(`channels/${ch}/messages`).add(msg);
   remember(n, msg.text);
+  await pushChat(n, ch, msg.text);
   console.log(`[대답·${ch}] ${n.name} ← ${trigger.charName}: ${msg.text}`);
   return true;
 }
@@ -198,6 +255,7 @@ async function replyOnPost(n, postRef, post, trigger) {
   batch.update(postRef, { commentCount: FieldValue.increment(1), lastActivityAt: FieldValue.serverTimestamp() });
   await batch.commit();
   remember(n, text);
+  await pushComment(n, postRef.id, post, text);
   console.log(`[댓글 대답] ${n.name} → ${post.title}: ${text}`);
   return true;
 }
@@ -311,6 +369,7 @@ async function chat(n) {
   if (!text) return false;
   await db.collection(`channels/${ch}/messages`).add(msg);
   remember(n, msg.text, topic);
+  await pushChat(n, ch, msg.text);
   console.log(`[채팅·${ch}] ${n.name}: ${msg.text}`);
   return true;
 }
@@ -336,6 +395,7 @@ async function comment(n) {
   batch.update(p.ref, { commentCount: FieldValue.increment(1), lastActivityAt: FieldValue.serverTimestamp() });
   await batch.commit();
   remember(n, text);
+  await pushComment(n, p.id, p.data(), text);
   console.log(`[댓글] ${n.name} → ${p.get("title")}: ${text}`);
   return true;
 }

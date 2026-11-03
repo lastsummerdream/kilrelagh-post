@@ -182,5 +182,11 @@ service cloud.firestore {
         allow update, delete: if false;
       }
     }
+
+    // 푸시 알림 주소: 각자 자기 문서만 쓰고 지울 수 있고, 아무도 읽을 수 없음 (알림 중계소만 관리자 키로 읽음)
+    match /pushTokens/{userId} {
+      allow read: if false;
+      allow create, update, delete: if isMember() && request.auth.uid == userId;
+    }
   }
 }
