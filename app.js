@@ -698,6 +698,10 @@ async function pushDiagnose(out) {
     add(okN > 0, "시험 푸시 보냄", `등록된 기기 ${j.tokens}곳 중 ${okN}곳 성공`);
     for (const x of j.results || []) if (x.result !== "ok") add(false, `  ${x.platform} 기기`, `${x.result} ${x.status} ${x.detail || ""}`.slice(0, 260));
     if (okN) add(null, "확인", "몇 초 안에 ‘푸시 시험’ 알림이 떠야 합니다. 안 뜨면 이 화면을 캡처해 주세요.");
+    if (NATIVE && NATIVE.battery) {
+      let bat = ""; try { bat = String(NATIVE.battery()); } catch (e) {}
+      add(bat === "free", "배터리 최적화", bat === "free" ? "꺼짐 (알림이 바로 옵니다)" : "켜짐 — 앱이 닫혀 있을 때 알림이 늦거나 안 올 수 있어요. 아래 ‘배터리 최적화에서 빼기’를 눌러 주세요.");
+    }
   } catch (e) { add(false, "시험 푸시", e.message); }
   return lines;
 }
@@ -725,7 +729,12 @@ function notifyBox() {
       diagBtn.disabled = true; diagOut.hidden = false; diagOut.textContent = "확인하는 중…";
       try { await pushDiagnose(diagOut); } finally { diagBtn.disabled = false; }
     } });
-    const diag = PUSH_RELAY || NATIVE_PUSH ? h("div", { class: "diag-wrap" }, h("div", { class: "account-row" }, h("span", { class: "muted", text: "푸시가 안 오면 눌러 보세요. 어디서 막히는지 단계별로 보여 줍니다." }), diagBtn), diagOut) : null;
+    const appRow = NATIVE && NATIVE.openBattery ? h("div", { class: "account-row" },
+      h("span", { class: "muted", text: "안드로이드 앱: 앱이 닫혀 있어도 알림이 오려면 배터리 최적화에서 이 앱을 빼 주세요." }),
+      h("span", { class: "actions", style: "margin:0" },
+        h("button", { class: "btn small", type: "button", text: "배터리 최적화에서 빼기", onclick: () => { try { NATIVE.openBattery(); } catch (e) {} } }),
+        h("button", { class: "btn small", type: "button", text: "앱 알림 설정", onclick: () => { try { NATIVE.openNotifySettings(); } catch (e) {} } }))) : null;
+    const diag = PUSH_RELAY || NATIVE_PUSH ? h("div", { class: "diag-wrap" }, appRow, h("div", { class: "account-row" }, h("span", { class: "muted", text: "푸시가 안 오면 눌러 보세요. 어디서 막히는지 단계별로 보여 줍니다." }), diagBtn), diagOut) : null;
     box.replaceChildren(h("h3", { class: "room-sec", text: "✠ 알림" }), body, ...(diag ? [diag] : []),
       h("p", { class: "muted", style: "font-size:.82rem;margin:8px 0 0", text: pushReady() ? "이 기기로 푸시 알림이 옵니다. 다른 기기에서도 받으려면 그 기기에서도 알림을 켜 주세요."
         : PUSH_RELAY ? "알림을 켜면 이 기기에 푸시 알림이 등록됩니다. (컴퓨터 Chrome·Edge, 안드로이드 앱, 홈 화면에 추가한 아이폰)"

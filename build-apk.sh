@@ -149,6 +149,7 @@ cat > "$OUT/app/src/main/AndroidManifest.xml" <<EOF
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
   <application
       android:label="@string/app_name"
       android:icon="@mipmap/ic_launcher"
@@ -312,7 +313,8 @@ public class PushService extends FirebaseMessagingService {
   @Override public void onMessageReceived(RemoteMessage msg) {
     Map<String, String> d = msg.getData();
     if (d == null || d.isEmpty()) return;
-    if (MainActivity.foreground) return;   // 앱을 보고 있으면 화면 안의 안내 띠가 알려 줌
+    boolean test = "1".equals(d.get("test"));
+    if (MainActivity.foreground && !test) return;   // 앱을 보고 있으면 화면 안의 안내 띠가 알려 줌 (시험 알림은 늘 보여 줌)
     Notify.show(this, d.get("title"), d.get("body"), d.get("hash"));
   }
 }
@@ -340,6 +342,8 @@ import android.content.pm.PackageManager;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
+import android.provider.Settings;
 import android.webkit.CookieManager;
 import android.webkit.JavascriptInterface;
 import android.webkit.ValueCallback;
@@ -489,6 +493,24 @@ public class MainActivity extends Activity {
     @JavascriptInterface public String permission() { return permissionState(); }
 
     @JavascriptInterface public String pushToken() { return Push.ENABLED ? prefs.getString("pushToken", "") : ""; }
+
+    // 배터리 최적화: 켜져 있으면 휴대폰이 앱을 재워서 알림이 늦거나 안 올 수 있음
+    @JavascriptInterface public String battery() {
+      PowerManager pm = getSystemService(PowerManager.class);
+      return (pm != null && pm.isIgnoringBatteryOptimizations(getPackageName())) ? "free" : "optimized";
+    }
+    @JavascriptInterface public void openBattery() {
+      runOnUiThread(() -> {
+        try { startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()))); }
+        catch (Exception e) { try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception e2) { } }
+      });
+    }
+    @JavascriptInterface public void openNotifySettings() {
+      runOnUiThread(() -> {
+        try { startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())); }
+        catch (Exception e) { }
+      });
+    }
 
     @JavascriptInterface public void requestPermission() {
       runOnUiThread(() -> {
