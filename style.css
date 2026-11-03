@@ -399,3 +399,7 @@ html, body{cursor:url(cursor.png) 0 0, auto}
 a, button, select, label, summary, [role="button"], .linkbtn, .btn, .msg-del, .bgm-toggle, .bgm-vol input,
 input[type="checkbox"], input[type="radio"], input[type="file"], input[type="range"]{cursor:url(cursor.png) 0 0, pointer !important}
 .btn:disabled, button:disabled{cursor:not-allowed !important}
+
+/* ===== 알림 안내 띠 (누르면 그 대화로) ===== */
+.toast.link{cursor:url(cursor.png) 0 0, pointer;text-decoration:underline;text-underline-offset:3px}
+@media (max-width: 560px){ .toast{bottom:calc(64px + env(safe-area-inset-bottom, 0px))} }

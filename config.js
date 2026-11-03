@@ -8,6 +8,11 @@ export const firebaseConfig = {
   messagingSenderId: "772073932998",
   appId: "1:772073932998:web:ecb7da19a97bea31772fc7",
   measurementId: "G-428K48433H"
-  vapidKey: "①에서 복사한 웹 푸시 키",
-  relay: "③에서 복사한 중계소 주소"
+};
+
+// 푸시 알림 — 호스팅 안내 12단계 ①의 '웹 푸시 키'와 ③의 '중계소 주소'를 따옴표 안에 넣으세요.
+// 아직 없으면 비워 두어도 사이트는 그대로 동작합니다 (푸시만 꺼진 상태).
+export const pushConfig = {
+  vapidKey: "",
+  relay: ""
 };
