@@ -14,7 +14,7 @@
 //   NPC_CONFIG_URL            (선택)    npcs.json 주소. 기본: https://lastsummerdream.github.io/kilrelagh-post/npcs.json
 
 const CHANNEL_NAMES = {
-  square: "광장", school: "페이건 오멘 스쿨", kilrelagh: "킬렐러 마을",
+  square: "광장", school: "페이건 오멘 스쿨", kilrelagh: "킬렐러 마을", hazelwood: "헤이즐우드 묘원",
   chapel: "성 카흘루 예배당", castle: "캐슬 페이건", marsh: "늪과 숲"
 };
 

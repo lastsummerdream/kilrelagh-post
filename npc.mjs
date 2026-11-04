@@ -12,7 +12,7 @@ import { getMessaging } from "firebase-admin/messaging";
 
 const cfg = JSON.parse(await readFile(new URL("./npcs.json", import.meta.url), "utf8"));
 const CHANNEL_NAMES = {
-  square: "광장", school: "페이건 오멘 스쿨", kilrelagh: "킬렐러 마을",
+  square: "광장", school: "페이건 오멘 스쿨", kilrelagh: "킬렐러 마을", hazelwood: "헤이즐우드 묘원",
   chapel: "성 카흘루 예배당", castle: "캐슬 페이건", marsh: "늪과 숲"
 };
 const force = process.env.NPC_FORCE === "true";
