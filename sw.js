@@ -11,8 +11,14 @@ self.addEventListener("push", (e) => {
   const hash = typeof d.hash === "string" && d.hash.startsWith("#/") ? d.hash : "#/chat/square";
   e.waitUntil((async () => {
     // 지금 이 사이트를 보고 있으면 기기 알림 대신 화면 안의 안내 띠가 알려 줌
-    const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-    if (wins.some(w => w.visibilityState === "visible" && w.focused)) return;
+    // Chrome·Edge는 사이트를 보고 있으면 화면 안 안내 띠로 대신함.
+    // 아이폰·Safari는 푸시마다 반드시 알림을 보여 줘야 하므로(안 그러면 푸시가 끊김) 늘 보여 줌. 시험 푸시도 늘 보여 줌.
+    const ua = (self.navigator && self.navigator.userAgent) || "";
+    const chromium = /Chrome|Chromium|Edg\//.test(ua) && !/iPhone|iPad|iPod/.test(ua);
+    if (chromium && d.test !== "1") {
+      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+      if (wins.some(w => w.visibilityState === "visible" && w.focused)) return;
+    }
     await self.registration.showNotification(title, {
       body, tag: d.tag || hash, renotify: true, data: { hash },
       icon: "icon-192.png", badge: "icon-192.png"

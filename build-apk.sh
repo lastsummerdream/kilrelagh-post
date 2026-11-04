@@ -149,7 +149,6 @@ cat > "$OUT/app/src/main/AndroidManifest.xml" <<EOF
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET" />
   <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-  <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
   <application
       android:label="@string/app_name"
       android:icon="@mipmap/ic_launcher"
@@ -501,7 +500,8 @@ public class MainActivity extends Activity {
     }
     @JavascriptInterface public void openBattery() {
       runOnUiThread(() -> {
-        try { startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName()))); }
+        // 특별 권한 없이 '앱 정보' 화면을 엶 → 배터리 → 제한 없음 (권한을 요구하면 Play 프로텍트가 의심할 수 있어서)
+        try { startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + getPackageName()))); }
         catch (Exception e) { try { startActivity(new Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)); } catch (Exception e2) { } }
       });
     }
