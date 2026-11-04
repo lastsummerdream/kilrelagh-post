@@ -1,0 +1,39 @@
+name: 알림 중계소 배포
+# push-worker.js를 Cloudflare(kilrelagh-push)에 올립니다. 미국 서버에 고정해서 Claude 지역 차단(홍콩)을 피합니다.
+# 처음 한 번: 깃헙 Settings → Secrets and variables → Actions 에 CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID 추가.
+# 그 뒤로는 push-worker.js를 깃헙에 올리기만 하면 자동으로 배포됩니다. (Actions 탭에서 Run workflow로 직접 돌려도 됨)
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - push-worker.js
+      - .github/workflows/worker.yml
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 배포 준비
+        run: |
+          mkdir -p cfw
+          cp push-worker.js cfw/index.js
+          cat > cfw/wrangler.toml <<'TOML'
+          name = "kilrelagh-push"
+          main = "index.js"
+          compatibility_date = "2025-01-01"
+          workers_dev = true
+          keep_vars = true
+
+          [placement]
+          region = "aws:us-east-1"
+          TOML
+      - name: Cloudflare에 배포
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: cfw
+          wranglerVersion: "4"
+          command: deploy
