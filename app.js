@@ -32,6 +32,7 @@ const CHANNELS = [
   { id: "square",    name: "광장",             desc: "장소에 얽매이지 않는 전체 대화방" },
   { id: "school",    name: "페이건 오멘 스쿨",  desc: "교정, 강의실, 기숙사, 도서관" },
   { id: "kilrelagh", name: "킬렐러 마을",       desc: "둑길 위의 마을, 여관과 대장간" },
+  { id: "hazelwood", name: "헤이즐우드 묘원",   desc: "안개 낀 고목 사이의 묘지, 입구의 작은 꽃집" },
   { id: "chapel",    name: "성 카흘루 예배당",  desc: "늪과 호수가 만나는 섬 위의 예배당" },
   { id: "castle",    name: "캐슬 페이건",       desc: "숲 그늘 속의 저택과 고해실" },
   { id: "marsh",     name: "늪과 숲",           desc: "학생 출입이 금지된 곳" }
@@ -364,6 +365,7 @@ const CHANNEL_MUSIC = {
   square: "square.mp3",
   school: "school.mp3",
   kilrelagh: "kilrelagh.mp3",
+  hazelwood: "hazelwood.mp3",
   chapel: "chapel.mp3",
   castle: "castle.mp3",
   marsh: "marsh.mp3"
