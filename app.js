@@ -576,12 +576,18 @@ function calledNpcNames(text) {
 async function askNpc(target, text) {
   const names = calledNpcNames(text);
   if (!names.length || !PUSH_RELAY || !auth.currentUser) return;
+  toast(`${names.join(", ")}이(가) 대답을 쓰고 있어요…`);
   try {
     const idt = await auth.currentUser.getIdToken();
     const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "npc", ...target }) });
-    const j = await r.json().catch(() => ({}));
-    if (Array.isArray(j.npc) && j.npc.length) toast(`${j.npc.join(", ")}이(가) 대답을 쓰고 있어요…`);
-  } catch (e) {}
+    const raw = await r.text(); let j = {}; try { j = JSON.parse(raw); } catch (e) {}
+    const fail = (why) => toast("NPC 즉시 대답 실패: " + why + (isAdmin() ? "" : " (운영자에게 알려 주세요)"));
+    if (!r.ok) return fail(r.status + " " + raw.slice(0, 160));
+    if (j.npc === "off") return fail("Cloudflare에 ANTHROPIC_API_KEY가 없습니다");
+    if (j.error) return fail(j.error);
+    if (j.skip) return fail(j.skip);
+    if (j.npc === undefined) return fail("중계소 코드가 예전 버전입니다");
+  } catch (e) { toast("NPC 즉시 대답 실패: 중계소에 닿지 않음"); }
 }
 
 const noticeSeen = new Set();
@@ -709,6 +715,14 @@ async function pushDiagnose(out) {
   if (!PUSH_RELAY) return lines;
   try { const r = await fetch(PUSH_RELAY + "/"); const t = (await r.text()).slice(0, 80); add(r.ok, "중계소 연결", r.status + " " + t); if (!r.ok) return lines; }
   catch (e) { add(false, "중계소 연결", "닿지 않음: " + e.message + " (주소가 맞는지, Deploy를 눌렀는지 확인)"); return lines; }
+  try {
+    const idt = await auth.currentUser.getIdToken();
+    const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "npccheck" }) });
+    const t = await r.text(); let j = null; try { j = JSON.parse(t); } catch (e) {}
+    if (!r.ok) add(false, "NPC 즉시 대답", r.status + " " + t.slice(0, 200));
+    else if (!j || j.ok === undefined) add(false, "NPC 즉시 대답", "중계소 코드가 예전 버전입니다. 새 push-worker.js를 붙여 넣고 Deploy를 눌러 주세요.");
+    else add(j.ok, "NPC 즉시 대답", j.detail);
+  } catch (e) { add(false, "NPC 즉시 대답", e.message); }
   try {
     const idt = await auth.currentUser.getIdToken();
     const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "test" }) });
