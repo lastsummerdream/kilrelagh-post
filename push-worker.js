@@ -171,7 +171,9 @@ async function npcConfig(env) {
   npcCfgCache = { at: Date.now(), url, cfg };
   return cfg;
 }
-const aliasesOf = (n) => [n.name, ...(n.aliases || [])].filter(Boolean);
+// speakerAliases: 특정 인물이 말할 때만 통하는 호칭 (예: 플린트가 '어머니'라고 부르면 머시가 대답)
+const aliasesOf = (n, speaker = "") => [n.name, ...(n.aliases || []),
+  ...(n.speakerAliases || []).filter(r => r.speaker && speaker.includes(r.speaker)).flatMap(r => r.aliases || [])].filter(Boolean);
 async function npcTargets(g, env, caller, b) {
   let where, trig, post = null, path;
   if (b.where === "chat" && CHANNEL_NAMES[b.channel] && SAFE_ID.test(b.id || "")) {
@@ -188,7 +190,7 @@ async function npcTargets(g, env, caller, b) {
   const cfg = await npcConfig(env);
   if (cfg.replyToMentions === false) return { skip: "npcs.json에서 꺼져 있음 (replyToMentions)" };
   const text = trig.text || "";
-  const npcs = (cfg.npcs || []).filter(n => aliasesOf(n).some(a => text.includes(a))).slice(0, 2);
+  const npcs = (cfg.npcs || []).filter(n => aliasesOf(n, trig.charName || "").some(a => text.includes(a))).slice(0, 2);
   if (!npcs.length) return { skip: "NPC 이름이 안 보임" };
   return { where, path, trig, post, postId: b.post, channel: b.channel, npcs, cfg };
 }

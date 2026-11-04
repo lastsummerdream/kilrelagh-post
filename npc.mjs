@@ -228,10 +228,14 @@ async function generate(n, buildPrompt, extraRecent, max, toText) {
 }
 
 // ---------- 1) 이름을 부르면 대답하기 ----------
-function aliasesOf(n) { return [n.name, ...(n.aliases || [])].filter(Boolean); }
-function calledNpcs(text) {
+// speakerAliases: 특정 인물이 말할 때만 통하는 호칭 (예: 플린트가 '어머니'라고 부르면 머시가 대답)
+function aliasesOf(n, speaker = "") {
+  const extra = (n.speakerAliases || []).filter(r => r.speaker && speaker.includes(r.speaker)).flatMap(r => r.aliases || []);
+  return [n.name, ...(n.aliases || []), ...extra].filter(Boolean);
+}
+function calledNpcs(text, speaker = "") {
   const t = text || "";
-  return cfg.npcs.filter(n => aliasesOf(n).some(a => t.includes(a)));
+  return cfg.npcs.filter(n => aliasesOf(n, speaker || "").some(a => t.includes(a)));
 }
 function markAnswered(id) { state.answered = [...state.answered, id].slice(-200); changed = true; }
 
@@ -281,20 +285,20 @@ async function answerMentions() {
     for (const d of snap.docs) {
       const m = d.data();
       if (m.npc || m.npcAnswered || state.answered.includes(d.id)) continue;   // 중계소가 이미 즉시 대답한 말은 건너뜀
-      for (const n of calledNpcs(m.text)) jobs.push({ key: d.id, n, run: () => replyInChannel(n, ch, m) });
+      for (const n of calledNpcs(m.text, m.charName)) jobs.push({ key: d.id, n, run: () => replyInChannel(n, ch, m) });
     }
   }
   const posts = await db.collection("posts").where("lastActivityAt", ">", since).orderBy("lastActivityAt").get();
   for (const p of posts.docs) {
     const post = p.data();
     if (!post.npc && !state.answered.includes(p.id) && post.createdAt && post.createdAt.toMillis() > since.toMillis()) {
-      for (const n of calledNpcs(post.title + " " + post.body)) jobs.push({ key: p.id, n, run: () => replyOnPost(n, p.ref, post, { charName: post.charName, text: post.title }) });
+      for (const n of calledNpcs(post.title + " " + post.body, post.charName)) jobs.push({ key: p.id, n, run: () => replyOnPost(n, p.ref, post, { charName: post.charName, text: post.title }) });
     }
     const cs = await p.ref.collection("comments").where("createdAt", ">", since).orderBy("createdAt").get();
     for (const c of cs.docs) {
       const cm = c.data();
       if (cm.npc || cm.npcAnswered || state.answered.includes(c.id)) continue;
-      for (const n of calledNpcs(cm.text)) jobs.push({ key: c.id, n, run: () => replyOnPost(n, p.ref, post, cm) });
+      for (const n of calledNpcs(cm.text, cm.charName)) jobs.push({ key: c.id, n, run: () => replyOnPost(n, p.ref, post, cm) });
     }
   }
   let count = 0;

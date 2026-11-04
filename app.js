@@ -568,15 +568,16 @@ async function pushOut(payload) {
 /* ---------- NPC 즉시 대답: 이름(별명 포함)을 부르면 알림 중계소가 몇 초 안에 대답을 씀 ---------- */
 let NPC_CALLS = null;   // [{ name, aliases }]
 fetch("npcs.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).then(c => {
-  if (c && Array.isArray(c.npcs)) NPC_CALLS = c.npcs.map(n => ({ name: n.name, aliases: [n.name, ...(n.aliases || [])].filter(Boolean) }));
+  if (c && Array.isArray(c.npcs)) NPC_CALLS = c.npcs.map(n => ({ name: n.name, aliases: [n.name, ...(n.aliases || [])].filter(Boolean), speakerAliases: n.speakerAliases || [] }));
 }).catch(() => {});
-function calledNpcNames(text) {
+function calledNpcNames(text, speaker = "") {
   const t = text || "";
   const list = NPC_CALLS || S.charList.filter(c => c.npc).map(c => ({ name: c.name, aliases: [c.name, (c.name || "").split(/\s+/)[0]].filter(x => x && x.length >= 2) }));
-  return list.filter(n => n.aliases.some(a => t.includes(a))).map(n => n.name).slice(0, 2);
+  const all = (n) => [...n.aliases, ...(n.speakerAliases || []).filter(r => r.speaker && speaker.includes(r.speaker)).flatMap(r => r.aliases || [])];
+  return list.filter(n => all(n).some(a => t.includes(a))).map(n => n.name).slice(0, 2);
 }
-async function askNpc(target, text) {
-  const names = calledNpcNames(text);
+async function askNpc(target, text, speaker = "") {
+  const names = calledNpcNames(text, speaker);
   if (!names.length || !PUSH_RELAY || !auth.currentUser) return;
   toast(`${names.join(", ")}이(가) 대답을 쓰고 있어요…`);
   try {
@@ -946,7 +947,7 @@ function viewChat(chId) {
         uid: uid(), charId: me.id, charName: me.name, text, kind, createdAt: serverTimestamp()
       });
       if (callsOthers(text)) pushOut({ kind: "chat", channel: ch.id, id: ref.id });
-      askNpc({ where: "chat", channel: ch.id, id: ref.id }, text);
+      askNpc({ where: "chat", channel: ch.id, id: ref.id }, text, me.name);
     } catch (e) { toast(errText(e)); ta.value = text; autosize(ta); }
   }
   ta.addEventListener("keydown", (e) => {
@@ -1026,7 +1027,7 @@ function viewPost(postId) {
       await b.commit();
       ta.value = "";
       pushOut({ kind: "comment", post: postId, id: cref.id });
-      askNpc({ where: "comment", post: postId, id: cref.id }, text);
+      askNpc({ where: "comment", post: postId, id: cref.id }, text, me.name);
     } catch (e) { toast(errText(e)); }
     btn.disabled = false;
   }
