@@ -6,6 +6,8 @@
 //
 // 필요한 설정 (Cloudflare 대시보드 → 이 Worker → Settings → Variables and Secrets)
 //   FIREBASE_SERVICE_ACCOUNT  (Secret)  Firebase 관리자 키 JSON 파일 내용 전체
+//   ※ 배포는 깃헙 Actions '알림 중계소 배포'(worker.yml)가 미국 서버(aws:us-east-1)에 고정해서 합니다.
+//     Cloudflare 무료 요금제는 한국에서 부르면 홍콩 서버에서 돌 때가 많은데, Claude API는 홍콩을 막기 때문입니다.
 //     ↳ 한 칸에 안 들어가면 대신 세 칸으로: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY (모두 Secret)
 //   ALLOWED_ORIGIN            (선택)    사이트 주소. 예: https://lastsummerdream.github.io
 //   ANTHROPIC_API_KEY         (Secret, 선택)  넣으면 NPC가 이름을 부르는 즉시(몇 초 안에) 대답합니다.
@@ -21,6 +23,8 @@ export default {
     const cors = corsHeaders(req, env);
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
     const url = new URL(req.url);
+    // 이 중계소가 지금 어느 도시 서버에서 돌고 있는지 (HKG=홍콩이면 Claude가 막음)
+    const runAt = req.headers.get("cf-placement") || (req.cf && req.cf.colo) || "?";
     if (req.method === "GET" && url.pathname === "/") return text("킬렐러 우체국 알림 중계소가 일하고 있습니다.", 200, cors);
     if (req.method !== "POST" || url.pathname !== "/notify") return text("not found", 404, cors);
     try {
@@ -32,12 +36,21 @@ export default {
       if (!caller) return text("unauthorized", 401, cors);
       if (!(await g.get(`members/${caller}`))) return text("not a member", 403, cors);
       const body = await req.json().catch(() => ({}));
-      if (body && body.kind === "npc") {      // NPC 즉시 대답: 응답은 바로, 대답 쓰기는 뒤에서
+      if (body && body.kind === "npccheck") {  // 진단: Claude 키와 npcs.json이 제대로인지
+        if (!env.ANTHROPIC_API_KEY) return json({ ok: false, detail: "Cloudflare에 ANTHROPIC_API_KEY가 없습니다." }, 200, cors);
+        try {
+          const cfg = await npcConfig(env);
+          const out = await npcClaude(env, cfg, "한 단어로만 답하세요.", "안녕?", 10);
+          return json({ ok: true, detail: `Claude 응답 받음 (${cfg.model || "claude-haiku-5-5"}, 실행 위치 ${runAt}): ${out.slice(0, 20)}` }, 200, cors);
+        } catch (e) { return json({ ok: false, detail: String(e && e.message || e).slice(0, 300) + ` (실행 위치 ${runAt})` }, 200, cors); }
+      }
+      if (body && body.kind === "npc") {      // NPC 즉시 대답: 끝까지 써 보고 결과를 돌려줌 (실패하면 이유를 알려 줌)
         if (!env.ANTHROPIC_API_KEY) return json({ npc: "off" }, 200, cors);
         const t = await npcTargets(g, env, caller, body);
-        if (!t) return json({ npc: 0 }, 200, cors);
-        ctx.waitUntil(npcReply(g, env, t).catch(e => console.log("NPC 대답 실패", e && e.message)));
-        return json({ npc: t.npcs.map(n => n.name) }, 200, cors);
+        if (!t || t.skip) return json({ npc: 0, skip: t && t.skip || "" }, 200, cors);
+        const names = t.npcs.map(n => n.name);
+        try { const n = await npcReply(g, env, t); return json({ npc: names, done: n }, 200, cors); }
+        catch (e) { return json({ npc: names, error: String(e && e.message || e).slice(0, 300) + ` (실행 위치 ${runAt})` }, 200, cors); }
       }
       const job = await plan(g, caller, body);
       if (!job) return json({ sent: 0 }, 200, cors);
@@ -166,15 +179,17 @@ async function npcTargets(g, env, caller, b) {
   } else if (b.where === "comment" && SAFE_ID.test(b.post || "") && SAFE_ID.test(b.id || "")) {
     where = "comment"; path = `posts/${b.post}/comments/${b.id}`;
     post = await g.get(`posts/${b.post}`); if (!post) return null;
-  } else return null;
+  } else return { skip: "잘못된 요청" };
   trig = await g.get(path);
-  if (!trig || trig.uid !== caller || trig.npc || trig.npcAnswered) return null;
-  if (!(trig.createdAt instanceof Date) || Date.now() - trig.createdAt.getTime() > 3 * 60 * 1000) return null;
+  if (!trig) return { skip: "메시지를 찾지 못함" };
+  if (trig.uid !== caller) return { skip: "내가 쓴 말이 아님" };
+  if (trig.npc || trig.npcAnswered) return { skip: "이미 대답함" };
+  if (!(trig.createdAt instanceof Date) || Date.now() - trig.createdAt.getTime() > 3 * 60 * 1000) return { skip: "3분이 지난 말" };
   const cfg = await npcConfig(env);
-  if (cfg.replyToMentions === false) return null;
+  if (cfg.replyToMentions === false) return { skip: "npcs.json에서 꺼져 있음 (replyToMentions)" };
   const text = trig.text || "";
   const npcs = (cfg.npcs || []).filter(n => aliasesOf(n).some(a => text.includes(a))).slice(0, 2);
-  if (!npcs.length) return null;
+  if (!npcs.length) return { skip: "NPC 이름이 안 보임" };
   return { where, path, trig, post, postId: b.post, channel: b.channel, npcs, cfg };
 }
 function npcSystem(cfg, n) {
@@ -205,13 +220,20 @@ function npcMoment() {
   return `${season}, ${["일", "월", "화", "수", "목", "금", "토"][now.getUTCDay()]}요일 ${part}`;
 }
 const npcLine = (m) => `${m.charName || "?"}: ${m.kind === "action" ? "*" + m.text + "*" : m.text}`;
-async function npcClaude(env, cfg, system, user) {
+async function npcClaude(env, cfg, system, user, maxTokens = 350) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: cfg.model || "claude-haiku-5-5", max_tokens: 350, temperature: 1, system, messages: [{ role: "user", content: user }] })
+    body: JSON.stringify({ model: cfg.model || "claude-haiku-5-5", max_tokens: maxTokens, temperature: 1, system, messages: [{ role: "user", content: user }] })
   });
-  if (!r.ok) throw new Error("Claude API " + r.status + " " + (await r.text()).slice(0, 200));
+  if (!r.ok) {
+    const t = (await r.text()).slice(0, 200);
+    const why = r.status === 401 ? " — ANTHROPIC_API_KEY가 틀렸습니다 (sk-ant- 로 시작하는 키인지 확인)"
+      : r.status === 400 && /credit|balance/i.test(t) ? " — Claude 콘솔에 충전된 크레딧이 없습니다 (Plans & Billing)"
+      : r.status === 403 && /Request not allowed|forbidden/i.test(t) ? " — 중계소가 Claude를 쓸 수 없는 지역(홍콩 등) 서버에서 돌고 있습니다. 깃헙 Actions의 '알림 중계소 배포'로 미국 서버에 고정해 주세요"
+      : r.status === 404 ? " — npcs.json의 model 이름이 틀렸습니다" : r.status === 429 ? " — 너무 자주 불렀거나 사용 한도에 걸렸습니다" : "";
+    throw new Error("Claude API " + r.status + why + " · " + t);
+  }
   const j = await r.json();
   return (j.content || []).filter(x => x.type === "text").map(x => x.text).join("").trim();
 }
@@ -245,7 +267,7 @@ async function npcReply(g, env, t) {
     if (t.where === "comment") writes.push(g.transformWrite(`posts/${t.postId}`, [{ fieldPath: "commentCount", increment: { integerValue: "1" } }, { fieldPath: "lastActivityAt", setToServerValue: "REQUEST_TIME" }]));
     replies.push({ n, text });
   }
-  if (!replies.length) return;
+  if (!replies.length) throw new Error("Claude가 빈 대답을 돌려줌");
   writes.push(g.markWrite(t.path, { npcAnswered: true }));
   await g.commit(writes);
   // 대답에 이름이 불린 사람(과 댓글이면 글쓴이)에게 푸시
@@ -256,8 +278,9 @@ async function npcReply(g, env, t) {
     if (!to.size) continue;
     await deliver(g, t.where === "chat"
       ? { to: [...to], title: `${r.n.name} · ${CHANNEL_NAMES[t.channel]}`, body: r.text, hash: `#/chat/${t.channel}`, tag: `chat:${t.channel}` }
-      : { to: [...to], title: `💬 ${r.n.name}의 댓글 · ${t.post.title || "게시판"}`, body: r.text, hash: `#/board/${t.postId}`, tag: `post:${t.postId}` });
+      : { to: [...to], title: `💬 ${r.n.name}의 댓글 · ${t.post.title || "게시판"}`, body: r.text, hash: `#/board/${t.postId}`, tag: `post:${t.postId}` }).catch(() => {});
   }
+  return replies.length;
 }
 
 /* ---------------- 보내기 ---------------- */
