@@ -224,7 +224,7 @@ async function npcClaude(env, cfg, system, user, maxTokens = 350) {
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": env.ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model: cfg.model || "claude-haiku-5-5", max_tokens: maxTokens, temperature: 1, system, messages: [{ role: "user", content: user }] })
+    body: JSON.stringify(claudeBody(cfg.model || "claude-haiku-5-5", system, user, maxTokens))
   });
   if (!r.ok) {
     const t = (await r.text()).slice(0, 200);
@@ -235,7 +235,17 @@ async function npcClaude(env, cfg, system, user, maxTokens = 350) {
     throw new Error("Claude API " + r.status + why + " · " + t);
   }
   const j = await r.json();
-  return (j.content || []).filter(x => x.type === "text").map(x => x.text).join("").trim();
+  const text = (j.content || []).filter(x => x.type === "text").map(x => x.text).join("").trim();
+  if (!text) throw new Error(j.stop_reason === "refusal" ? "Claude가 안전 필터로 대답을 거절함 (stop_reason: refusal)" : `Claude가 빈 대답을 돌려줌 (stop_reason: ${j.stop_reason})`);
+  return text;
+}
+// Claude 5 세대(haiku-5-5 등)는 생각(thinking)이 기본으로 켜져 있고 그 분량도 max_tokens에 포함됩니다.
+// 그래서 여유를 크게 주고, 생각은 짧게(effort low) 하도록 합니다. temperature는 5 세대에서 받지 않으므로 넣지 않습니다.
+function claudeBody(model, system, user, maxTokens) {
+  const gen5 = /claude-[a-z]+-5/.test(model || "");
+  const b = { model, max_tokens: gen5 ? maxTokens + 4000 : maxTokens, system, messages: [{ role: "user", content: user }] };
+  if (gen5) b.output_config = { effort: "low" };
+  return b;
 }
 async function npcReply(g, env, t) {
   const { cfg } = t;

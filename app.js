@@ -152,7 +152,7 @@ function avatar(ch, size, fallbackName) {
   else box.textContent = initial(ch ? ch.name : fallbackName);
   return box;
 }
-function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight, 180) + "px"; }
+function autosize(ta) { ta.style.height = "auto"; ta.style.height = Math.min(ta.scrollHeight + (ta.offsetHeight - ta.clientHeight), 180) + "px"; }
 function isComposingKey(e) { return e.isComposing || e.keyCode === 229; }
 
 /* ============================== 설정 확인 ============================== */
