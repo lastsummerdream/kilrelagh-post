@@ -1,4 +1,5 @@
 // 킬렐러 우체국 NPC — GitHub Actions가 10분마다 실행합니다.
+// (공개 저장소의 실행 기록은 누구나 볼 수 있으므로, 기록에는 대화 내용·글 제목을 남기지 않습니다.)
 // 한 번 깨어날 때마다 세 가지를 차례로 합니다.
 //   1) 누가 채널이나 게시판에서 NPC 이름을 불렀으면 그 NPC가 대답합니다.
 //   2) 하루에 정해 둔 횟수(postsPerDay)만큼, 정해 둔 시간대에 게시판에 글을 올립니다.
@@ -211,7 +212,7 @@ async function generate(n, buildPrompt, extraRecent, max, toText) {
     if (!val) continue;
     const check = typeof val === "string" ? val : val.check;
     if (!tooSimilar(check, extraRecent)) return val;
-    console.log(`비슷한 말이라 다시 씁니다 (${i + 1}/${NR.retries}): ${check}`);
+    console.log(`비슷한 말이라 다시 씁니다 (${i + 1}/${NR.retries})`);
   }
   return null;
 }
@@ -238,7 +239,7 @@ async function replyInChannel(n, ch, trigger) {
   await db.collection(`channels/${ch}/messages`).add(msg);
   remember(n, msg.text);
   await pushChat(n, ch, msg.text);
-  console.log(`[대답·${ch}] ${n.name} ← ${trigger.charName}: ${msg.text}`);
+  console.log(`[대답·${ch}] ${n.name}이(가) 이름을 부른 말에 대답했습니다.`);
   return true;
 }
 async function replyOnPost(n, postRef, post, trigger) {
@@ -256,7 +257,7 @@ async function replyOnPost(n, postRef, post, trigger) {
   await batch.commit();
   remember(n, text);
   await pushComment(n, postRef.id, post, text);
-  console.log(`[댓글 대답] ${n.name} → ${post.title}: ${text}`);
+  console.log(`[댓글 대답] ${n.name}이(가) 게시판에서 대답했습니다.`);
   return true;
 }
 async function answerMentions() {
@@ -269,7 +270,7 @@ async function answerMentions() {
     const snap = await db.collection(`channels/${ch}/messages`).where("createdAt", ">", since).orderBy("createdAt").get();
     for (const d of snap.docs) {
       const m = d.data();
-      if (m.npc || state.answered.includes(d.id)) continue;
+      if (m.npc || m.npcAnswered || state.answered.includes(d.id)) continue;   // 중계소가 이미 즉시 대답한 말은 건너뜀
       for (const n of calledNpcs(m.text)) jobs.push({ key: d.id, n, run: () => replyInChannel(n, ch, m) });
     }
   }
@@ -282,7 +283,7 @@ async function answerMentions() {
     const cs = await p.ref.collection("comments").where("createdAt", ">", since).orderBy("createdAt").get();
     for (const c of cs.docs) {
       const cm = c.data();
-      if (cm.npc || state.answered.includes(c.id)) continue;
+      if (cm.npc || cm.npcAnswered || state.answered.includes(c.id)) continue;
       for (const n of calledNpcs(cm.text)) jobs.push({ key: c.id, n, run: () => replyOnPost(n, p.ref, post, cm) });
     }
   }
@@ -333,7 +334,7 @@ async function post(n) {
   });
   remember(n, title + " — " + body.slice(0, 80), topic);
   state.lastPoster = n.id;
-  console.log(`[게시글] ${n.name}: ${title}`);
+  console.log(`[게시글] ${n.name}이(가) 게시판에 글을 올렸습니다.`);
   return true;
 }
 async function scheduledPost() {
@@ -370,7 +371,7 @@ async function chat(n) {
   await db.collection(`channels/${ch}/messages`).add(msg);
   remember(n, msg.text, topic);
   await pushChat(n, ch, msg.text);
-  console.log(`[채팅·${ch}] ${n.name}: ${msg.text}`);
+  console.log(`[채팅·${ch}] ${n.name}이(가) 한마디 했습니다.`);
   return true;
 }
 async function comment(n) {
@@ -396,7 +397,7 @@ async function comment(n) {
   await batch.commit();
   remember(n, text);
   await pushComment(n, p.id, p.data(), text);
-  console.log(`[댓글] ${n.name} → ${p.get("title")}: ${text}`);
+  console.log(`[댓글] ${n.name}이(가) 댓글을 달았습니다.`);
   return true;
 }
 async function chatter() {

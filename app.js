@@ -563,6 +563,27 @@ async function pushOut(payload) {
   } catch (e) {}
 }
 
+/* ---------- NPC 즉시 대답: 이름(별명 포함)을 부르면 알림 중계소가 몇 초 안에 대답을 씀 ---------- */
+let NPC_CALLS = null;   // [{ name, aliases }]
+fetch("npcs.json", { cache: "no-cache" }).then(r => r.ok ? r.json() : null).then(c => {
+  if (c && Array.isArray(c.npcs)) NPC_CALLS = c.npcs.map(n => ({ name: n.name, aliases: [n.name, ...(n.aliases || [])].filter(Boolean) }));
+}).catch(() => {});
+function calledNpcNames(text) {
+  const t = text || "";
+  const list = NPC_CALLS || S.charList.filter(c => c.npc).map(c => ({ name: c.name, aliases: [c.name, (c.name || "").split(/\s+/)[0]].filter(x => x && x.length >= 2) }));
+  return list.filter(n => n.aliases.some(a => t.includes(a))).map(n => n.name).slice(0, 2);
+}
+async function askNpc(target, text) {
+  const names = calledNpcNames(text);
+  if (!names.length || !PUSH_RELAY || !auth.currentUser) return;
+  try {
+    const idt = await auth.currentUser.getIdToken();
+    const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "npc", ...target }) });
+    const j = await r.json().catch(() => ({}));
+    if (Array.isArray(j.npc) && j.npc.length) toast(`${j.npc.join(", ")}이(가) 대답을 쓰고 있어요…`);
+  } catch (e) {}
+}
+
 const noticeSeen = new Set();
 let noticeSince = 0;
 function notice(key, title, body, hash) {
@@ -772,6 +793,53 @@ function route() {
 
 /* ============================== 대화 기록 공통 ============================== */
 function isNpc(c) { return !!(c && c.npc); }
+/* ---------- 내가 보낸 말 고치기·지우기 (공용) ----------
+   st.editing = { id, text } 이면 그 말 자리에 편집칸을 그림. 새 말이 들어와 다시 그려져도 고치던 글은 유지됨 */
+function inlineEditor(st, id, initial, maxLen, save, redraw) {
+  const ta = h("textarea", { class: "edit-ta", rows: "2", maxlength: String(maxLen), "aria-label": "고칠 내용" });
+  ta.value = st.editing.text;
+  ta.addEventListener("input", () => { st.editing.text = ta.value; autosize(ta); });
+  const done = async () => {
+    const t = ta.value.trim();
+    if (!t) { toast("내용을 적어 주세요."); return; }
+    if (t === initial) { st.editing = null; redraw(); return; }
+    try { await save(t); st.editing = null; redraw(); toast("고쳤습니다."); } catch (e) { toast(errText(e)); }
+  };
+  const cancel = () => { st.editing = null; redraw(); };
+  ta.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey && !isComposingKey(e)) { e.preventDefault(); done(); }
+    else if (e.key === "Escape") { e.preventDefault(); cancel(); }
+  });
+  requestAnimationFrame(() => { autosize(ta); if (document.activeElement !== ta) { ta.focus(); try { ta.setSelectionRange(ta.value.length, ta.value.length); } catch (e) {} } });
+  return h("div", { class: "edit-box" }, ta,
+    h("div", { class: "edit-actions" },
+      h("button", { class: "btn small primary", type: "button", text: "저장", onclick: done }),
+      h("button", { class: "btn small", type: "button", text: "취소", onclick: cancel }),
+      h("span", { class: "muted", text: "Enter 저장 · Esc 취소" })));
+}
+function msgTools(canEdit, canDel, onEdit, onDel) {
+  if (!canEdit && !canDel) return null;
+  return h("div", { class: "msg-tools" },
+    canEdit ? h("button", { class: "msg-tool", type: "button", text: "고치기", onclick: (e) => { e.stopPropagation(); onEdit(); } }) : null,
+    canDel ? h("button", { class: "msg-tool", type: "button", text: "지우기", onclick: (e) => { e.stopPropagation(); onDel(); } }) : null);
+}
+// 휴대폰: 내 말을 한 번 누르면 고치기·지우기 버튼이 보임 (컴퓨터는 마우스를 올리면 보임)
+document.addEventListener("click", (e) => {
+  const el = e.target.closest && e.target.closest(".msg.own, .letter.own, .comment.own");
+  if (e.target.closest && e.target.closest("a, button, textarea, input, select")) return;
+  document.querySelectorAll(".show-tools").forEach(x => { if (x !== el) x.classList.remove("show-tools"); });
+  if (el) el.classList.toggle("show-tools");
+});
+// 마지막 말을 고치거나 지웠을 때 목록에 보이는 '마지막 말'도 맞춰 줌 (쪽지·둘만의 방)
+async function syncLastText(parentRef, msgs, changedId, newText, deleted) {
+  const last = msgs[msgs.length - 1];
+  if (!last || last.id !== changedId) return;
+  let t = newText;
+  if (deleted) { const prev = msgs[msgs.length - 2]; t = prev ? (prev.kind === "action" ? "*" + prev.text + "*" : prev.text) : ""; }
+  else if (last.kind === "action") t = "*" + newText + "*";
+  try { await updateDoc(parentRef, { lastText: (t || "").slice(0, 80) }); } catch (e) {}
+}
+
 function renderLog(log, msgs, state, opts) {
   const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 90;
   const out = [];
@@ -786,20 +854,30 @@ function renderLog(log, msgs, state, opts) {
     const mine = m.uid === uid();
     const name = c ? c.name : (m.charName || "사라진 인물");
     const npc = isNpc(c) || m.npc;
-    const del = (opts.delRef && (mine || isAdmin()) && !opts.readOnly) ? h("button", {
-      class: "msg-del", type: "button", text: "지우기", "aria-label": "메시지 지우기",
-      onclick: async () => { if (!confirm("이 메시지를 지울까요?")) return; try { await deleteDoc(opts.delRef(m)); } catch (e) { toast(errText(e)); } }
-    }) : null;
-    out.push(h("div", { class: "msg" + (cont ? " cont" : "") + (mine ? " mine" : "") + (action ? " action" : "") + (npc ? " npc" : "") },
+    const canEdit = !!opts.delRef && mine && !opts.readOnly;
+    const canDel = !!opts.delRef && !opts.readOnly && (mine || (npc && isAdmin()));
+    const editing = state.editing && state.editing.id === m.id;
+    const tools = editing ? null : msgTools(canEdit, canDel,
+      () => { state.editing = { id: m.id, text: m.text }; opts.redraw && opts.redraw(); },
+      async () => {
+        if (!confirm("이 메시지를 지울까요?")) return;
+        try { await deleteDoc(opts.delRef(m)); if (opts.afterDelete) opts.afterDelete(m); } catch (e) { toast(errText(e)); }
+      });
+    out.push(h("div", { class: "msg" + (cont && !editing ? " cont" : "") + (mine ? " mine own" : "") + (action ? " action" : "") + (npc ? " npc" : "") },
       avatar(c, 40, name),
       h("div", { class: "msg-body" },
-        cont ? null : h("div", { class: "msg-meta" },
+        cont && !editing ? null : h("div", { class: "msg-meta" },
           c ? h("a", { class: "msg-name", href: "#/people/" + c.id, text: name }) : h("span", { class: "msg-name", text: name }),
           npc ? h("span", { class: "tag npc", text: "NPC" }) : null,
           c && c.affiliation ? h("span", { class: "msg-aff", text: c.affiliation }) : null,
           h("time", { class: "msg-time", text: fmtTime(d) })),
-        h("p", { class: "msg-text", text: action ? `— ${name} ${m.text}` : m.text })),
-      del));
+        editing
+          ? inlineEditor(state, m.id, m.text, opts.maxLen || 2000, async (t) => {
+              await updateDoc(opts.delRef(m), { text: t, editedAt: serverTimestamp() });
+              if (opts.afterEdit) opts.afterEdit(m, t);
+            }, () => opts.redraw && opts.redraw())
+          : h("p", { class: "msg-text" }, action ? `— ${name} ${m.text}` : m.text, m.editedAt ? h("span", { class: "msg-edited", text: " (수정됨)" }) : null)),
+      tools));
     prev = m;
   }
   if (!out.length) out.push(h("div", { class: "empty", style: "margin:auto" }, h("strong", { text: opts.emptyTitle }), opts.emptyText));
@@ -835,7 +913,7 @@ function viewChat(chId) {
   function draw() {
     drawWho();
     renderLog(log, msgs, logState, {
-      delRef: (m) => doc(db, "channels", ch.id, "messages", m.id),
+      delRef: (m) => doc(db, "channels", ch.id, "messages", m.id), redraw: draw, maxLen: 2000,
       emptyTitle: "아직 조용합니다", emptyText: "첫마디를 건네 보세요."
     });
   }
@@ -852,6 +930,7 @@ function viewChat(chId) {
         uid: uid(), charId: me.id, charName: me.name, text, kind, createdAt: serverTimestamp()
       });
       if (callsOthers(text)) pushOut({ kind: "chat", channel: ch.id, id: ref.id });
+      askNpc({ where: "chat", channel: ch.id, id: ref.id }, text);
     } catch (e) { toast(errText(e)); ta.value = text; autosize(ta); }
   }
   ta.addEventListener("keydown", (e) => {
@@ -916,6 +995,7 @@ function viewPost(postId) {
   const ta = h("textarea", { class: "textarea", id: "comment-input", placeholder: "댓글을 남기세요", "aria-label": "댓글" });
   const btn = h("button", { class: "btn primary", type: "button", text: "댓글 달기" });
   const whoLine = h("p", { class: "muted", style: "margin:0 0 8px;font-size:.88rem" });
+  const cmEdit = { editing: null };
 
   async function addComment() {
     const me = activeChar(); const text = ta.value.trim();
@@ -930,6 +1010,7 @@ function viewPost(postId) {
       await b.commit();
       ta.value = "";
       pushOut({ kind: "comment", post: postId, id: cref.id });
+      askNpc({ where: "comment", post: postId, id: cref.id }, text);
     } catch (e) { toast(errText(e)); }
     btn.disabled = false;
   }
@@ -962,21 +1043,25 @@ function viewPost(postId) {
         comments.map(cm => {
           const cc = S.chars[cm.charId]; const cn = cc ? cc.name : (cm.charName || "사라진 인물");
           const cmine = cm.uid === uid();
-          return h("div", { class: "comment" + (cmine ? " mine" : "") },
+          const cref = doc(db, "posts", postId, "comments", cm.id);
+          const editing = cmine && cmEdit.editing && cmEdit.editing.id === cm.id;
+          const cnpc = (cc && isNpc(cc)) || cm.npc;
+          return h("div", { class: "comment" + (cmine ? " mine own" : "") },
             avatar(cc, 34, cn),
             h("div", { class: "msg-body" },
               h("div", { class: "msg-meta" },
                 cc ? h("a", { class: "msg-name", href: "#/people/" + cc.id, text: cn }) : h("span", { class: "msg-name", text: cn }),
                 h("time", { class: "msg-time", text: fmtShort(toDate(cm.createdAt)) }),
-                (cmine || isAdmin()) ? h("button", {
-                  class: "linkbtn", type: "button", text: "지우기",
-                  onclick: async () => {
+                editing ? null : msgTools(cmine, cmine || (cnpc && isAdmin()),
+                  () => { cmEdit.editing = { id: cm.id, text: cm.text }; draw(); },
+                  async () => {
                     if (!confirm("이 댓글을 지울까요?")) return;
-                    try { const b = writeBatch(db); b.delete(doc(db, "posts", postId, "comments", cm.id)); b.update(doc(db, "posts", postId), { commentCount: increment(-1) }); await b.commit(); }
+                    try { const b = writeBatch(db); b.delete(cref); b.update(doc(db, "posts", postId), { commentCount: increment(-1) }); await b.commit(); }
                     catch (e) { toast(errText(e)); }
-                  }
-                }) : null),
-              h("p", { class: "msg-text", text: cm.text })));
+                  })),
+              editing
+                ? inlineEditor(cmEdit, cm.id, cm.text, 3000, (t) => updateDoc(cref, { text: t, editedAt: serverTimestamp() }), draw)
+                : h("p", { class: "msg-text" }, cm.text, cm.editedAt ? h("span", { class: "msg-edited", text: " (수정됨)" }) : null)));
         }),
         me ? h("div", { class: "comment-form", style: "margin-top:16px" }, whoLine, ta, h("div", { class: "actions", style: "margin-top:8px" }, btn)) : needChar()));
   }
@@ -1085,6 +1170,7 @@ function viewMail(convId) {
     updateDoc(doc(db, "dms", convId), { ["readAt." + uid()]: serverTimestamp() })
       .catch(() => {}).finally(() => setTimeout(() => S.marking.delete(convId), 1500));
   }
+  const dmEdit = { editing: null };
   function drawThread() {
     if (!convId) {
       thread.replaceChildren(h("div", { class: "empty", style: "margin:auto" }, h("strong", { text: "쪽지를 고르세요" }), "왼쪽 목록에서 대화를 열 수 있습니다."));
@@ -1113,9 +1199,22 @@ function viewMail(convId) {
       if (d.toDateString() !== prevDay) { out.push(h("div", { class: "day", text: fmtDay(d) })); prevDay = d.toDateString(); }
       const mine = m.uid === uid();
       const c = S.chars[m.charId];
-      out.push(h("div", { class: "letter" + (mine ? " mine" : "") },
-        h("p", { class: "msg-text", text: m.text }),
-        h("footer", { text: `${c ? c.name : "사라진 인물"} · ${fmtTime(d)}` })));
+      const editing = mine && dmEdit.editing && dmEdit.editing.id === m.id;
+      const ref = doc(db, "dms", convId, "messages", m.id);
+      out.push(h("div", { class: "letter" + (mine ? " mine own" : "") },
+        editing
+          ? inlineEditor(dmEdit, m.id, m.text, 3000, async (t) => {
+              await updateDoc(ref, { text: t, editedAt: serverTimestamp() });
+              syncLastText(doc(db, "dms", convId), msgs, m.id, t, false);
+            }, drawThread)
+          : h("p", { class: "msg-text" }, m.text, m.editedAt ? h("span", { class: "msg-edited", text: " (수정됨)" }) : null),
+        h("footer", null, `${c ? c.name : "사라진 인물"} · ${fmtTime(d)}`,
+          mine && !editing ? msgTools(true, true,
+            () => { dmEdit.editing = { id: m.id, text: m.text }; drawThread(); },
+            async () => {
+              if (!confirm("이 쪽지를 지울까요?")) return;
+              try { await deleteDoc(ref); syncLastText(doc(db, "dms", convId), msgs, m.id, "", true); } catch (e) { toast(errText(e)); }
+            }) : null)));
     }
     if (!out.length) out.push(h("div", { class: "empty", style: "margin:auto" }, h("strong", { text: other ? `${other.name}에게 보내는 첫 쪽지` : "첫 쪽지" }), `${mineC.name}의 이름으로 보냅니다.`));
     const nearBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 90;
@@ -1205,7 +1304,7 @@ function viewProfile(charId) {
               h("a", { class: "btn", href: "#/me/edit/" + c.id, text: "프로필 고치기" }),
               S.activeId === c.id ? h("span", { class: "tag mine", text: "지금 말하는 인물" }) :
                 h("button", { class: "btn", type: "button", text: "이 인물로 말하기", onclick: () => { S.activeId = c.id; saveActive(c.id); drawWhoami(); toast(`${c.name}(으)로 말합니다.`); draw(); } })
-            ] : isNpc(c) ? h("p", { class: "notice", style: "margin:0", text: `이 인물은 운영자가 정해 둔 NPC입니다. 채널이나 게시판에서 ‘${c.name.split(" ")[0]}’처럼 이름을 부르면 보통 10~20분 안에 대답하고, 가끔 스스로 말을 남기거나 게시판에 글을 올립니다.` })
+            ] : isNpc(c) ? h("p", { class: "notice", style: "margin:0", text: `이 인물은 운영자가 정해 둔 NPC입니다. 채널이나 게시판 댓글에서 ‘${c.name.split(" ")[0]}’처럼 이름을 부르면 ${PUSH_RELAY ? "몇 초 안에" : "보통 10~20분 안에"} 대답하고, 가끔 스스로 말을 남기거나 게시판에 글을 올립니다.` })
             : (me
               ? [h("a", { class: "btn primary", href: "#/mail/" + convIdFor(me.id, c.id), text: `${me.name}(으)로 쪽지 보내기` }),
                  h("a", { class: "btn", href: "#/rooms/new/" + c.id, text: "둘만의 방 열기" })]
@@ -1549,7 +1648,9 @@ function viewRoom(roomId) {
     else if (!foot.contains(ta)) foot.replaceChildren(h("div", { class: "composer" }, who, ta, sendBtn), h("div", { class: "composer-tip", text: "Enter 보내기 · Shift+Enter 줄바꿈 · /me 또는 *별표*로 행동 묘사 · 두 사람만 볼 수 있습니다" }));
     ta.placeholder = `${room.place}에서 말하기`;
     renderLog(log, msgs, logState, {
-      delRef: (m) => doc(db, "rooms", roomId, "messages", m.id), readOnly: room.closed,
+      delRef: (m) => doc(db, "rooms", roomId, "messages", m.id), readOnly: room.closed, redraw: draw, maxLen: 2000,
+      afterEdit: (m, t) => syncLastText(doc(db, "rooms", roomId), msgs, m.id, t, false),
+      afterDelete: (m) => syncLastText(doc(db, "rooms", roomId), msgs, m.id, "", true),
       emptyTitle: "둘만 남았습니다", emptyText: "먼저 말을 꺼내 보세요."
     });
   }

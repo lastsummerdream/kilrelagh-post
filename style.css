@@ -689,3 +689,72 @@ button,input,textarea,select,option{letter-spacing:inherit;font-kerning:none}
    ===================================================================== */
 body{font-size:11pt}
 .empty,.empty strong,.notice,.notice strong,.error,.account-row > span,.gate .lead,.field > label{font-size:11pt}
+
+/* =====================================================================
+   내가 보낸 말 고치기·지우기
+   ===================================================================== */
+.msg-tools{position:absolute;right:6px;top:4px;display:flex;gap:4px;opacity:0;transition:opacity .12s;z-index:2}
+.msg:hover .msg-tools,.msg.show-tools .msg-tools,.msg-tools:focus-within{opacity:1}
+.msg-tool{background:var(--paper);border:.5px solid var(--ink);font-size:.68rem;line-height:1.4;padding:1px 6px;font-family:var(--f-sans);letter-spacing:var(--ls)}
+.msg-tool:hover{background:var(--ink);color:var(--paper)}
+.letter footer .msg-tools,.comment .msg-meta .msg-tools{position:static;display:inline-flex;margin-left:8px;opacity:0;vertical-align:middle}
+.letter:hover .msg-tools,.letter.show-tools .msg-tools,.comment:hover .msg-tools,.comment.show-tools .msg-tools{opacity:1}
+.comment{position:relative}
+@media (hover: none){
+  /* 휴대폰: 내 말을 누르면 보이고, 안 누르면 아주 흐리게 */
+  .msg.own .msg-tools,.letter.own .msg-tools,.comment.own .msg-tools{opacity:.0}
+  .msg.own.show-tools .msg-tools,.letter.own.show-tools .msg-tools,.comment.own.show-tools .msg-tools{opacity:1}
+  .msg.npc .msg-tools{opacity:0}
+}
+.msg-edited{font-size:.72em;color:var(--ink-soft);font-family:var(--f-sans)}
+.edit-box{margin-top:4px}
+.edit-ta{width:100%;box-sizing:border-box;resize:none;border:.5px solid var(--green);outline:1px solid var(--green);background:#fbfaf7;
+  padding:4px 8px;font-family:"KoPub Dotum 92",var(--f-sans);font-size:10pt;line-height:1.5;letter-spacing:var(--ls);max-height:180px}
+.edit-actions{display:flex;gap:6px;align-items:center;margin-top:4px;flex-wrap:wrap}
+.edit-actions .muted{font-size:.72rem}
+.msg .msg-del{display:none}
+
+/* =====================================================================
+   휴대폰 대화 화면: 위 설명칸을 지금의 60% 높이로, 대화 영역은 그만큼 넓게
+   입력칸은 글씨 10pt + 위아래 여백 2pt만
+   ===================================================================== */
+@media (max-width: 860px){
+  /* 광장 등 채널: 채널 고르기 + 설명 한 줄 */
+  .chat .chan-select{padding:4px 10px;font-size:.84rem;line-height:1.3;min-height:0}
+  .chat .room-head{padding:3px 10px;gap:6px;align-items:center;flex-wrap:nowrap}
+  .chat:not(.solo) .room-head h3{display:none}
+  .chat .room-head p{font-size:.74rem;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  /* 둘만의 방 머리: 버튼·제목을 한 줄로, 설명은 한 줄만 */
+  .room-head.scene{padding:5px 10px;gap:6px 8px;align-items:center}
+  .room-head.scene .btn{padding:2px 7px}
+  .scene-main{order:0;flex:1 1 0;text-align:center}
+  .scene-main h3{font-size:.98rem;line-height:1.25}
+  .scene-pair{font-size:.72rem;margin:0}
+  .room-head.scene .scene-note{margin:2px auto 0;font-size:.74rem;line-height:1.35;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+  .room-head.scene .room-pair .avatar{--s:24px !important}
+  /* 쪽지 머리 */
+  .thread .room-head{padding:4px 10px;gap:8px;align-items:center;flex-wrap:nowrap}
+  .thread .room-head h3{font-size:.98rem}
+  .thread .room-head p{font-size:.72rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+  .thread .room-head .btn{padding:2px 7px}
+  /* 입력줄: 안내 문구는 숨기고 입력칸은 글씨 10pt + 여백 2pt */
+  .composer-tip{display:none}
+  .composer{padding:5px 8px;gap:6px}
+  .composer textarea{font-size:10pt;line-height:1.35;padding:2pt 7px;min-height:0;height:calc(10pt * 1.35 + 4pt + 1px);box-sizing:border-box}
+  .composer .btn{padding:2px 10px;min-height:calc(10pt * 1.35 + 4pt + 1px)}
+}
+@supports (-webkit-touch-callout: none) {
+  @media (max-width: 860px){ .composer textarea{font-size:10pt !important;letter-spacing:var(--ls) !important} }
+}
+html.in-app .composer{padding:5px 8px}
+html.in-app .composer textarea{padding:2pt 7px;min-height:0}
+html.in-app .composer .btn{padding:2px 10px}
+@media (max-width: 860px){
+  .room-head.scene .scene-note{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+}
+/* 상자 네 귀퉁이 장식과 겹치지 않게 좌우 여백 */
+@media (max-width: 860px){
+  .composer,html.in-app .composer{padding:5px 14px}
+  .chat .room-head,.thread .room-head,.room-head.scene{padding-left:14px;padding-right:14px}
+  .chat .chan-select{padding-left:14px;padding-right:14px}
+}

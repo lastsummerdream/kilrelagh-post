@@ -28,6 +28,16 @@ service cloud.firestore {
     function optText(t, max) {
       return t is string && t.size() <= max;
     }
+    // 내가 보낸 말 고치기: 글 내용과 고친 시각만 바꿀 수 있음
+    function ownEdit(max) {
+      return isMember() && resource.data.uid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['text', 'editedAt'])
+        && textOk(request.resource.data.text, max);
+    }
+    // 지우기: 내 말만. 관리자는 NPC의 말만 지울 수 있음
+    function ownOrNpcDelete() {
+      return isMember() && (resource.data.uid == request.auth.uid || (isAdmin() && resource.data.get('npc', false) == true));
+    }
 
     // ---------- 초대 코드 (아무도 읽을 수 없음, 콘솔에서만 설정) ----------
     match /config/{doc} {
@@ -85,8 +95,8 @@ service cloud.firestore {
         && ownsChar(request.resource.data.charId)
         && textOk(request.resource.data.text, 2000)
         && request.resource.data.createdAt == request.time;
-      allow update: if false;
-      allow delete: if isMember() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow update: if ownEdit(2000);
+      allow delete: if ownOrNpcDelete();
     }
 
     // ---------- 게시판 ----------
@@ -119,8 +129,8 @@ service cloud.firestore {
           && ownsChar(request.resource.data.charId)
           && textOk(request.resource.data.text, 3000)
           && request.resource.data.createdAt == request.time;
-        allow update: if false;
-        allow delete: if isMember() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow update: if ownEdit(3000);
+        allow delete: if ownOrNpcDelete();
       }
     }
 
@@ -156,7 +166,8 @@ service cloud.firestore {
           && ownsChar(request.resource.data.charId)
           && textOk(request.resource.data.text, 2000)
           && request.resource.data.createdAt == request.time;
-        allow update: if false;
+        allow update: if ownEdit(2000)
+          && get(/databases/$(database)/documents/rooms/$(roomId)).data.closed == false;
         allow delete: if isMember() && resource.data.uid == request.auth.uid;
       }
     }
@@ -184,7 +195,8 @@ service cloud.firestore {
           && ownsChar(request.resource.data.charId)
           && textOk(request.resource.data.text, 3000)
           && request.resource.data.createdAt == request.time;
-        allow update, delete: if false;
+        allow update: if ownEdit(3000);
+        allow delete: if isMember() && resource.data.uid == request.auth.uid;
       }
     }
 
