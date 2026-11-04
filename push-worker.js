@@ -6,6 +6,7 @@
 //
 // 필요한 설정 (Cloudflare 대시보드 → 이 Worker → Settings → Variables and Secrets)
 //   FIREBASE_SERVICE_ACCOUNT  (Secret)  Firebase 관리자 키 JSON 파일 내용 전체
+//     ↳ 한 칸에 안 들어가면 대신 세 칸으로: FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY (모두 Secret)
 //   ALLOWED_ORIGIN            (선택)    사이트 주소. 예: https://lastsummerdream.github.io
 //   ANTHROPIC_API_KEY         (Secret, 선택)  넣으면 NPC가 이름을 부르는 즉시(몇 초 안에) 대답합니다.
 //   NPC_CONFIG_URL            (선택)    npcs.json 주소. 기본: https://lastsummerdream.github.io/kilrelagh-post/npcs.json
@@ -23,7 +24,7 @@ export default {
     if (req.method === "GET" && url.pathname === "/") return text("킬렐러 우체국 알림 중계소가 일하고 있습니다.", 200, cors);
     if (req.method !== "POST" || url.pathname !== "/notify") return text("not found", 404, cors);
     try {
-      const sa = readServiceAccount(env.FIREBASE_SERVICE_ACCOUNT);
+      const sa = readServiceAccount(env.FIREBASE_SERVICE_ACCOUNT, env);
       if (sa.error) return text(sa.error, 500, cors);
       const g = new Google(sa);
       const idToken = (req.headers.get("Authorization") || "").replace(/^Bearer\s+/i, "");
@@ -53,20 +54,34 @@ export default {
 };
 
 /* ---------------- 관리자 키 읽기: Secret(글자)로 넣었든 JSON 형식 변수로 넣었든 둘 다 받음 ---------------- */
-function readServiceAccount(v) {
+function readServiceAccount(v, env = {}) {
+  // 관리자 키를 세 칸으로 나눠 넣은 경우 (한 칸에 다 안 들어갈 때):
+  //   FIREBASE_PROJECT_ID, FIREBASE_CLIENT_EMAIL, FIREBASE_PRIVATE_KEY
+  if (env.FIREBASE_PRIVATE_KEY && env.FIREBASE_CLIENT_EMAIL && env.FIREBASE_PROJECT_ID) {
+    const unq = (x) => String(x).trim().replace(/^["'`]+|["'`,]+$/g, "").trim();
+    const key = unq(env.FIREBASE_PRIVATE_KEY).replace(/\\n/g, "\n");
+    if (!/BEGIN PRIVATE KEY/.test(key)) return { error: "FIREBASE_PRIVATE_KEY에는 -----BEGIN PRIVATE KEY----- 부터 -----END PRIVATE KEY----- 까지 넣어 주세요." };
+    return { project_id: unq(env.FIREBASE_PROJECT_ID), client_email: unq(env.FIREBASE_CLIENT_EMAIL), private_key: key };
+  }
   if (!v) return { error: "FIREBASE_SERVICE_ACCOUNT가 비어 있습니다. Cloudflare → Settings → Variables and Secrets에 Firebase 관리자 키 JSON을 넣어 주세요." };
   let o = v;
   if (typeof v === "string") {
-    const t = v.trim().replace(/^['"`]+|['"`]+$/g, "");
-    try { o = JSON.parse(t); }
-    catch (e) {
-      return { error: t.startsWith("B") && t.length < 120
-        ? "FIREBASE_SERVICE_ACCOUNT에 웹 푸시 키(vapidKey)가 들어 있습니다. Firebase 관리자 키 JSON 전체({ \"type\": \"service_account\" ... })로 바꿔 주세요."
-        : "FIREBASE_SERVICE_ACCOUNT를 JSON으로 읽지 못했습니다. 관리자 키 파일의 { 부터 } 까지 전부 붙여 넣었는지 확인해 주세요." };
+    // 붙여 넣을 때 흔히 생기는 문제를 고쳐서 읽어 봄: 앞뒤 따옴표, BOM, 맥 메모장의 둥근 따옴표, 줄바꿈이 풀린 private_key, base64
+    let t = v.replace(/^\uFEFF/, "").trim().replace(/^['`]+|['`]+$/g, "");
+    const smart = /[“”„‟″]/.test(t);
+    t = t.replace(/[“”„‟″]/g, '"').replace(/[‘’]/g, "'");
+    const tries = [t, t.replace(/"(?:[^"\\]|\\.)*"/gs, (m) => m.replace(/\r?\n/g, "\\n"))];
+    if (!t.startsWith("{")) { try { tries.push(atob(t.replace(/\s+/g, ""))); } catch (e) {} }
+    o = null;
+    for (const x of tries) { try { o = JSON.parse(x); break; } catch (e) {} }
+    if (!o) {
+      const hint = [`글자 수 ${t.length}`, t.startsWith("{") ? "{ 로 시작함" : "{ 로 시작하지 않음", t.endsWith("}") ? "} 로 끝남" : "} 로 끝나지 않음(뒷부분이 잘린 듯)",
+        smart ? "둥근 따옴표가 섞여 있었음" : "", /private_key/.test(t) ? "" : "private_key 없음"].filter(Boolean).join(", ");
+      return { error: `FIREBASE_SERVICE_ACCOUNT를 JSON으로 읽지 못했습니다 (${hint}). 관리자 키 파일을 Chrome 창에 끌어다 놓고 Cmd+A, Cmd+C로 복사해서 다시 넣어 주세요.` };
     }
   }
   if (!o || typeof o !== "object" || !o.private_key || !o.client_email || !o.project_id)
-    return { error: "FIREBASE_SERVICE_ACCOUNT에 private_key·client_email·project_id가 없습니다. Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성으로 받은 JSON을 넣어 주세요." };
+    return { error: "FIREBASE_SERVICE_ACCOUNT에 private_key·client_email·project_id가 없습니다. Firebase 콘솔 → 프로젝트 설정 → 서비스 계정 → 새 비공개 키 생성으로 받은 JSON을 넣어 주세요. (google-services.json이 아닙니다)" };
   return o;
 }
 
