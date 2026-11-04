@@ -47,9 +47,12 @@ export default {
       if (body && body.kind === "npc") {      // NPC 즉시 대답: 끝까지 써 보고 결과를 돌려줌 (실패하면 이유를 알려 줌)
         if (!env.ANTHROPIC_API_KEY) return json({ npc: "off" }, 200, cors);
         const t = await npcTargets(g, env, caller, body);
-        if (!t || t.skip) return json({ npc: 0, skip: t && t.skip || "" }, 200, cors);
+        if (!t || t.skip) return json({ npc: 0, skip: t && t.skip || "", quiet: !!(t && t.quiet) }, 200, cors);
         const names = t.npcs.map(n => n.name);
-        try { const n = await npcReply(g, env, t); return json({ npc: names, done: n }, 200, cors); }
+        try {
+          const n = await npcReply(g, env, t);
+          return json(n ? { npc: names, done: n } : { npc: 0, skip: "대화 상대가 아니라서 넘어감", quiet: true }, 200, cors);
+        }
         catch (e) { return json({ npc: names, error: String(e && e.message || e).slice(0, 300) + ` (실행 위치 ${runAt})` }, 200, cors); }
       }
       const job = await plan(g, caller, body);
@@ -191,8 +194,23 @@ async function npcTargets(g, env, caller, b) {
   if (cfg.replyToMentions === false) return { skip: "npcs.json에서 꺼져 있음 (replyToMentions)" };
   const text = trig.text || "";
   const npcs = (cfg.npcs || []).filter(n => aliasesOf(n, trig.charName || "").some(a => text.includes(a))).slice(0, 2);
-  if (!npcs.length) return { skip: "NPC 이름이 안 보임" };
-  return { where, path, trig, post, postId: b.post, channel: b.channel, npcs, cfg };
+  if (npcs.length) return { where, path, trig, post, postId: b.post, channel: b.channel, npcs, cfg };
+  // 이름을 안 불렀어도, NPC가 방금(followUpMinutes 안에) 말했으면 그 말에 대한 답장일 수 있음 → 이어서 받아치기
+  const mins = cfg.followUpMinutes === undefined ? 3 : Number(cfg.followUpMinutes);
+  if (!mins) return { skip: "NPC 이름이 안 보임", quiet: true };
+  const recent = where === "chat"
+    ? await g.query(`channels/${b.channel}`, "messages", "createdAt", 12)
+    : await g.query(`posts/${b.post}`, "comments", "createdAt", 12);           // 최신이 앞
+  const t0 = trig.createdAt.getTime();
+  const lastNpc = recent.find(m => m.npc && m.createdAt instanceof Date && m.createdAt.getTime() <= t0 && t0 - m.createdAt.getTime() <= mins * 60000);
+  if (!lastNpc) return { skip: "최근에 말한 NPC 없음", quiet: true };
+  const n = (cfg.npcs || []).find(x => `npc-${x.id}` === lastNpc.charId);
+  if (!n) return { skip: "NPC 설정을 찾지 못함", quiet: true };
+  // 끝없이 이어지지 않게: 10분 안에 이어 말하기가 너무 많으면 쉼
+  const cap = Number(cfg.followUpMax || 6);
+  const chain = recent.filter(m => m.npc && m.followUp && m.createdAt instanceof Date && t0 - m.createdAt.getTime() <= 10 * 60000).length;
+  if (chain >= cap) return { skip: "이어 말하기 한도", quiet: true };
+  return { where, path, trig, post, postId: b.post, channel: b.channel, npcs: [n], cfg, followUp: true };
 }
 function npcSystem(cfg, n) {
   return [
@@ -260,7 +278,16 @@ async function npcReply(g, env, t) {
     const mine = recent.filter(m => m.charId === `npc-${n.id}`).slice(-6).map(m => "- " + m.text).join("\n");
     const avoid = mine ? `\n\n당신이 최근에 이미 한 말(같은 내용·표현 반복 금지):\n${mine}` : "";
     let user;
-    if (t.where === "chat") {
+    const passRule = `\n\n단, 이 말이 당신(${n.name})에게 하는 말도 아니고 당신과의 대화를 이어 가는 말도 아니라면(다른 사람끼리의 대화, 혼잣말, 다른 장면 등) 다른 말 없이 PASS 한 단어만 출력하세요.`;
+    if (t.followUp && t.where === "chat") {
+      user = `장소: ${CHANNEL_NAMES[t.channel]}\n지금: ${npcMoment()}\n최근 대화:\n${recent.map(npcLine).join("\n") || "(없음)"}${avoid}\n\n` +
+        `당신이 방금 말한 뒤에 ${t.trig.charName || "누군가"}이(가) 이렇게 말했습니다: "${t.trig.text}"\n` +
+        `그 말이 당신에게 답하거나 말을 거는 것이라면, ${n.name}(으)로서 가볍게 주고받듯 짧게 받아치세요. 1~2문장. 행동만 묘사하려면 전체를 *별표*로 감싸세요.` + passRule;
+    } else if (t.followUp) {
+      user = `게시판 글\n제목: ${t.post.title}\n작성: ${t.post.charName}\n본문:\n${t.post.body}\n\n댓글:\n${recent.map(c => `${c.charName}: ${c.text}`).join("\n") || "(없음)"}${avoid}\n\n` +
+        `당신이 방금 댓글을 단 뒤에 ${t.trig.charName || "누군가"}이(가) 이렇게 댓글을 달았습니다: "${t.trig.text}"\n` +
+        `그 댓글이 당신에게 답하거나 말을 거는 것이라면, ${n.name}(으)로서 짧게 댓글로 받아치세요. 1~2문장.` + passRule;
+    } else if (t.where === "chat") {
       user = `장소: ${CHANNEL_NAMES[t.channel]}\n지금: ${npcMoment()}\n최근 대화:\n${recent.map(npcLine).join("\n") || "(없음)"}${avoid}\n\n` +
         `방금 ${t.trig.charName || "누군가"}이(가) 당신을 부르거나 당신에 대해 말했습니다: "${t.trig.text}"\n` +
         `${n.name}(으)로서 그 말에 직접 대답하세요. 질문이면 인물이 알 만한 선에서 답하고, 말하기 곤란한 비밀이면 인물답게 얼버무리세요. 1~3문장. 행동만 묘사하려면 전체를 *별표*로 감싸세요.`;
@@ -270,16 +297,21 @@ async function npcReply(g, env, t) {
     }
     const out = npcClean(await npcClaude(env, cfg, npcSystem(cfg, n), user), t.where === "chat" ? 500 : 800, n.name);
     if (!out) continue;
+    if (t.followUp && /^PASS\b/i.test(out.replace(/[*_`"'\s]/g, ""))) continue;   // 자기한테 한 말이 아님
     let text = out, kind = "say";
     if (t.where === "chat" && /^\*[^*][\s\S]*\*$/.test(text)) { kind = "action"; text = text.slice(1, -1).trim(); }
     const fields = { uid: "npc", charId: `npc-${n.id}`, charName: n.name, text, npc: true, instant: true };
+    if (t.followUp) fields.followUp = true;
     if (t.where === "chat") fields.kind = kind;
     const col = t.where === "chat" ? `channels/${t.channel}/messages` : `posts/${t.postId}/comments`;
     writes.push(g.createWrite(col, fields, ["createdAt"]));
     if (t.where === "comment") writes.push(g.transformWrite(`posts/${t.postId}`, [{ fieldPath: "commentCount", increment: { integerValue: "1" } }, { fieldPath: "lastActivityAt", setToServerValue: "REQUEST_TIME" }]));
     replies.push({ n, text });
   }
-  if (!replies.length) throw new Error("Claude가 빈 대답을 돌려줌");
+  if (!replies.length) {
+    if (t.followUp) return 0;                 // 대화 상대가 아니라서 넘어감
+    throw new Error("Claude가 빈 대답을 돌려줌");
+  }
   writes.push(g.markWrite(t.path, { npcAnswered: true }));
   await g.commit(writes);
   // 대답에 이름이 불린 사람(과 댓글이면 글쓴이)에게 푸시

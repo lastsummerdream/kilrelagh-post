@@ -21,6 +21,8 @@
     ]
   ],
   "replyToMentions": true,
+  "followUpMinutes": 3,
+  "followUpMax": 6,
   "maxRepliesPerRun": 4,
   "noRepeat": {
     "historySize": 30,

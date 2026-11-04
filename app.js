@@ -576,10 +576,17 @@ function calledNpcNames(text, speaker = "") {
   const all = (n) => [...n.aliases, ...(n.speakerAliases || []).filter(r => r.speaker && speaker.includes(r.speaker)).flatMap(r => r.aliases || [])];
   return list.filter(n => all(n).some(a => t.includes(a))).map(n => n.name).slice(0, 2);
 }
-async function askNpc(target, text, speaker = "") {
+// NPC가 방금(3분 안에) 말한 곳이면 이름을 안 불러도 이어서 받아칠 수 있음 → 중계소가 판단
+const FOLLOW_MS = 3 * 60 * 1000;
+function npcJustSpoke(list) {
+  const now = Date.now();
+  return (list || []).some(m => m.npc && (now - ((toDate(m.createdAt) || new Date(0)).getTime())) <= FOLLOW_MS);
+}
+async function askNpc(target, text, speaker = "", recentList = null) {
   const names = calledNpcNames(text, speaker);
-  if (!names.length || !PUSH_RELAY || !auth.currentUser) return;
-  toast(`${names.join(", ")}이(가) 대답을 쓰고 있어요…`);
+  if (!PUSH_RELAY || !auth.currentUser) return;
+  if (!names.length && !npcJustSpoke(recentList)) return;
+  if (names.length) toast(`${names.join(", ")}이(가) 대답을 쓰고 있어요…`);
   try {
     const idt = await auth.currentUser.getIdToken();
     const r = await fetch(PUSH_RELAY + "/notify", { method: "POST", headers: { Authorization: "Bearer " + idt, "Content-Type": "application/json" }, body: JSON.stringify({ kind: "npc", ...target }) });
@@ -588,7 +595,7 @@ async function askNpc(target, text, speaker = "") {
     if (!r.ok) return fail(r.status + " " + raw.slice(0, 160));
     if (j.npc === "off") return fail("Cloudflare에 ANTHROPIC_API_KEY가 없습니다");
     if (j.error) return fail(j.error);
-    if (j.skip) return fail(j.skip);
+    if (j.skip) return j.quiet ? undefined : fail(j.skip);
     if (j.npc === undefined) return fail("중계소 코드가 예전 버전입니다");
   } catch (e) { toast("NPC 즉시 대답 실패: 중계소에 닿지 않음"); }
 }
@@ -947,7 +954,7 @@ function viewChat(chId) {
         uid: uid(), charId: me.id, charName: me.name, text, kind, createdAt: serverTimestamp()
       });
       if (callsOthers(text)) pushOut({ kind: "chat", channel: ch.id, id: ref.id });
-      askNpc({ where: "chat", channel: ch.id, id: ref.id }, text, me.name);
+      askNpc({ where: "chat", channel: ch.id, id: ref.id }, text, me.name, msgs);
     } catch (e) { toast(errText(e)); ta.value = text; autosize(ta); }
   }
   ta.addEventListener("keydown", (e) => {
@@ -1027,7 +1034,7 @@ function viewPost(postId) {
       await b.commit();
       ta.value = "";
       pushOut({ kind: "comment", post: postId, id: cref.id });
-      askNpc({ where: "comment", post: postId, id: cref.id }, text, me.name);
+      askNpc({ where: "comment", post: postId, id: cref.id }, text, me.name, comments);
     } catch (e) { toast(errText(e)); }
     btn.disabled = false;
   }
@@ -1321,7 +1328,7 @@ function viewProfile(charId) {
               h("a", { class: "btn", href: "#/me/edit/" + c.id, text: "프로필 고치기" }),
               S.activeId === c.id ? h("span", { class: "tag mine", text: "지금 말하는 인물" }) :
                 h("button", { class: "btn", type: "button", text: "이 인물로 말하기", onclick: () => { S.activeId = c.id; saveActive(c.id); drawWhoami(); toast(`${c.name}(으)로 말합니다.`); draw(); } })
-            ] : isNpc(c) ? h("p", { class: "notice", style: "margin:0", text: `이 인물은 운영자가 정해 둔 NPC입니다. 채널이나 게시판 댓글에서 ‘${c.name.split(" ")[0]}’처럼 이름을 부르면 ${PUSH_RELAY ? "몇 초 안에" : "보통 10~20분 안에"} 대답하고, 가끔 스스로 말을 남기거나 게시판에 글을 올립니다.` })
+            ] : isNpc(c) ? h("p", { class: "notice", style: "margin:0", text: `이 인물은 운영자가 정해 둔 NPC입니다. 채널이나 게시판 댓글에서 ‘${c.name.split(" ")[0]}’처럼 이름을 부르면 ${PUSH_RELAY ? "몇 초 안에 대답하고, 이 인물이 말한 뒤 3분 안에 답하면 이름을 안 불러도 이어서 받아치며," : "보통 10~20분 안에 대답하고,"} 가끔 스스로 말을 남기거나 게시판에 글을 올립니다.` })
             : (me
               ? [h("a", { class: "btn primary", href: "#/mail/" + convIdFor(me.id, c.id), text: `${me.name}(으)로 쪽지 보내기` }),
                  h("a", { class: "btn", href: "#/rooms/new/" + c.id, text: "둘만의 방 열기" })]
